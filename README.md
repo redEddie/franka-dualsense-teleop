@@ -1,5 +1,7 @@
 # dsfranka
 
+**DualSense teleoperation & demonstration data collection for Franka (FR3) — MuJoCo sim + libfranka**
+
 DualSense 게임패드로 Franka 로봇팔을 텔레오퍼레이션하고 시연 데이터를 수집하는 프로젝트.
 MuJoCo 시뮬레이션에서 조작감을 개발/검증한 뒤, 같은 코드 경로로 실제 Franka(libfranka)를 구동한다.
 
@@ -158,3 +160,10 @@ python scripts/teleop_real.py
 - [ ] 브리지 cartesian impedance(토크) 제어로 업그레이드 — 접촉 작업 안정성
 - [ ] 카메라 관측 녹화 (RealSense) → LeRobot 포맷 변환
 - [ ] DualSense 럼블/LED 피드백 (녹화 상태 표시, 충돌 경고)
+
+## Credits
+
+- 로봇 모델: [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie)의
+  `franka_fr3` / `franka_emika_panda` (각 디렉토리의 LICENSE 참고). `fr3_hand.xml`은
+  두 모델을 결합한 파생본이며 TCP site가 추가되어 있다.
+- 텔레옵 데이터 수집 설계 레퍼런스: [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) / robosuite
