@@ -1,0 +1,44 @@
+# dsfranka teleop configuration (shared by sim and real robot)
+
+control:
+  rate_hz: 50            # teleop tick rate (target integration + IK)
+  physics_substeps: auto # sim only: derived from model timestep
+
+speed:
+  xy: 0.25               # m/s at full left-stick deflection
+  z: 0.15                # m/s for manual z (d-pad up/down)
+  rot: 1.2               # rad/s at full right-stick deflection
+  yaw: 1.0               # rad/s for L1/R1 yaw
+  gripper: 0.10          # m/s equivalent width rate at full trigger
+  auto_move: 0.6         # interpolation speed factor for homing/descend/tilt (0..1 per s style gain)
+
+gamepad:
+  deadzone: 0.08
+  # sign convention: +lx -> +y_world, +ly(up) -> +x_world (tune to taste)
+  invert_ly: true
+  invert_ry: true
+
+workspace:               # target-pose clamp box, base frame [m]
+  x: [0.20, 0.70]
+  y: [-0.40, 0.40]
+  z: [0.03, 0.70]
+
+features:
+  descend_z: 0.12        # auto-descend target height [m] (Cross button)
+  tilt_angles_deg: [0, 30, 60, 90]   # Circle button cycles through these
+  tilt_axis: [0, 1, 0]   # world-frame axis for tilt rotation
+
+home:
+  # matches the "home" keyframe of the menagerie panda model
+  qpos: [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+
+ik:
+  pos_gain: 8.0          # target-error -> velocity gain
+  rot_gain: 8.0
+  damping: 1.0e-4        # DLS lambda
+  nullspace_gain: 0.5
+  max_joint_vel: 2.0     # rad/s clamp on IK output
+  cmd_lag_limit: 0.15    # rad, anti-windup: max lead of command over measured q
+
+recorder:
+  out_dir: data/episodes

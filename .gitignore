@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+data/episodes/*.hdf5
+MUJOCO_LOG.TXT
+cpp/build/
+.vscode/

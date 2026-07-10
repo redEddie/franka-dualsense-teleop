@@ -1,0 +1,110 @@
+# dsfranka
+
+DualSense 게임패드로 Franka 로봇팔을 텔레오퍼레이션하고 시연 데이터를 수집하는 프로젝트.
+MuJoCo 시뮬레이션에서 조작감을 개발/검증한 뒤, 같은 코드 경로로 실제 Franka(libfranka)를 구동한다.
+
+## 아키텍처
+
+```
+DualSense ──▶ TeleopSession (Python, 50 Hz)          ┌─ sim ──▶ MuJoCo physics (position servo)
+  (evdev)      · 스틱/버튼 → EE 타겟 pose 적분        │
+               · 상태머신 (호밍/틸트/자동하강/녹화)     ├─ real ─▶ DiffIK (kinematic MuJoCo model)
+               · EpisodeRecorder → HDF5              │           └▶ UDP → franka_bridge (C++, 1 kHz)
+               · DiffIK: 공통 damped-least-squares   ┘                    └▶ libfranka JointPositions
+```
+
+핵심 설계: **차분 IK와 텔레옵 로직이 시뮬/실물에서 완전히 동일**하다.
+시뮬은 MuJoCo 물리로 실행되고, 실물은 같은 MuJoCo 모델을 기구학 전용으로 사용해
+IK를 풀고 관절 타겟을 C++ 브리지로 스트리밍한다(브리지가 1 kHz 스무딩/추종).
+
+## 조작 매핑
+
+| 입력 | 기능 |
+|---|---|
+| 왼쪽 스틱 | x-y 평면 이동 (베이스 프레임) |
+| 오른쪽 스틱 | orientation (world x/y축 회전) |
+| L1 / R1 | yaw 회전 −/+ |
+| D-pad ↑/↓ | z 수동 상승/하강 |
+| L2 / R2 | 그리퍼 열기 / 닫기 (아날로그) |
+| ✕ (Cross) | 지정 높이까지 자동 하강 |
+| △ (Triangle) | 호밍 (홈 EE pose로 복귀) |
+| ▢ (Square) | orientation 리셋 (위치 유지) |
+| ○ (Circle) | 틸트 0°→30°→60°→90° 순환 |
+| Options | 에피소드 녹화 시작 / 정지+저장 |
+| Create | 녹화 중이면 폐기 |
+| PS | 세션 종료 |
+
+자동 이동(호밍/틸트/하강) 중 스틱을 크게 움직이면 즉시 취소된다.
+매핑 파라미터(속도, 데드존, 워크스페이스 한계, 하강 높이, 틸트 각도)는 `configs/teleop.yaml`.
+
+## 레포 구조
+
+```
+assets/                  MuJoCo 모델 (menagerie panda + tcp site 추가, 텔레옵 씬)
+configs/teleop.yaml      매핑/속도/IK/워크스페이스 설정
+src/dsfranka/
+  common/                types, DiffIK(공통 IK), Rate
+  input/                 DualSense evdev 드라이버, Mock
+  teleop/                TeleopSession (상태머신)
+  sim/                   MujocoArm 백엔드
+  real/                  FrankaArm 백엔드 (UDP 클라이언트, 미검증)
+  data/                  EpisodeRecorder (HDF5)
+scripts/                 teleop_sim.py / teleop_real.py / test_gamepad.py
+cpp/
+  examples/              libfranka 실습 예제 (읽기 → 홈 이동)
+  bridge/                franka_bridge (UDP↔1kHz 관절 제어)
+data/episodes/           수집된 에피소드 (episode_NNNN.hdf5)
+```
+
+## 시작하기 (시뮬)
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+
+# DualSense 확인 (USB 또는 블루투스 연결 후)
+python scripts/test_gamepad.py
+
+# 텔레옵 (뷰어 필요 — 데스크탑 세션에서 실행)
+python scripts/teleop_sim.py
+
+# 패드/화면 없이 스모크 테스트
+python scripts/teleop_sim.py --mock --headless --ticks 200
+```
+
+DualSense 권한 문제 시: `sudo usermod -aG input $USER` 후 재로그인.
+
+## 실제 로봇 (libfranka)
+
+설치/빌드/실행 절차는 [cpp/README.md](cpp/README.md) 참고. 요약:
+
+```bash
+# 1. 브리지 실행 (RT 커널 권장, 로봇은 FCI 모드)
+./cpp/build/franka_bridge <robot-ip>
+# 2. 텔레옵 클라이언트
+python scripts/teleop_real.py
+```
+
+브리지는 시작 시 현재 관절각과 가까운 첫 명령을 받을 때까지 대기하므로
+(클라이언트가 로봇 상태로 동기화 후 전송) 급격한 초기 이동이 없다.
+
+## 에피소드 포맷 (HDF5)
+
+```
+/t                  (N,)   timestamp
+/obs/q, /obs/dq     (N,7)  관절 위치/속도
+/obs/ee_pos         (N,3)  TCP 위치
+/obs/ee_quat        (N,4)  TCP orientation (wxyz)
+/obs/gripper_width  (N,)
+/action/ee_pos      (N,3)  타겟 pose (액션)
+/action/ee_quat     (N,4)
+/action/gripper     (N,)   0(닫힘)~1(열림)
+```
+
+## 로드맵
+
+- [x] MuJoCo 텔레옵 + 에피소드 녹화
+- [ ] 실물 franka_bridge 검증 (joint position streaming)
+- [ ] 브리지 cartesian impedance(토크) 제어로 업그레이드 — 접촉 작업 안정성
+- [ ] 카메라 관측 녹화 (RealSense) → LeRobot 포맷 변환
+- [ ] DualSense 럼블/LED 피드백 (녹화 상태 표시, 충돌 경고)
