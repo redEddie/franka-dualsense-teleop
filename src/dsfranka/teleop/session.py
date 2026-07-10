@@ -8,12 +8,15 @@ DualSense mapping
 left stick      x-y translation (base frame)
 right stick     z height, continuous (up/down)
 L1 / R1         yaw + / -
-d-pad           tilt direction select (up/down/left/right, base frame)
-Cross           tap: tilt +30 deg step (snaps up to the 30-deg grid)
-                hold: slow continuous tilt increase
-Circle          tap: tilt -30 deg step toward 0 (snaps down to the grid)
-                hold: slow continuous return
-Square          orientation reset (yaw & tilt -> 0, position kept)
+d-pad           select which tilt component to edit, and in which direction
+                (up/down -> ud component, left/right -> lr component);
+                selection alone never moves the robot and never resets state
+Cross           tap: step the selected component 30 deg in the selected
+                direction FROM ITS CURRENT VALUE (snaps onto the grid);
+                hold: slow continuous change in that direction
+Circle          tap: step the selected component 30 deg toward 0 (snap);
+                hold: slow continuous return to 0
+Square          orientation reset (yaw & both tilt components -> 0)
 Triangle        home (EE pose of the home configuration)
 R3              auto-descend to configured height
 L2 / R2         gripper open / close (analog rate)
@@ -21,9 +24,11 @@ Create          episode recording start / stop+save   (capture key)
 Options         discard current recording             (menu key)
 PS              quit session
 
-Orientation model: quat = yaw(world z) o tilt(selected axis, angle) o home.
-Yaw and tilt are tracked as scalars so taps can snap the tilt angle onto the
-30-degree grid (e.g. 74 -> 90 on Cross, 74 -> 60 on Circle).
+Orientation model:
+    quat = yaw(world z) o rot(lr_axis, lr_deg) o rot(ud_axis, ud_deg) o home
+The two tilt components are signed scalars in [-max, max], so d-pad direction
+changes are continuous (e.g. tilted +60 forward, select down, tap Cross ->
++30) and combined tilts (forward + sideways) are possible.
 """
 from __future__ import annotations
 
@@ -39,11 +44,9 @@ AUTO_CANCEL_STICK = 0.5   # stick deflection that cancels an auto-move
 AUTO_DONE_POS = 2e-3      # [m]
 AUTO_DONE_ROT = 1e-2      # [rad]
 
-DEFAULT_TILT_AXES = {     # world-frame rotation axis per d-pad direction
-    "dpad_up": [0.0, -1.0, 0.0],     # tip toward +x (away from base)
-    "dpad_down": [0.0, 1.0, 0.0],    # tip toward -x
-    "dpad_left": [1.0, 0.0, 0.0],    # tip toward +y
-    "dpad_right": [-1.0, 0.0, 0.0],  # tip toward -y
+DEFAULT_TILT_AXES = {     # world-frame rotation axis per tilt component
+    "ud": [0.0, -1.0, 0.0],   # up/down: + tips toward +x (before inversion)
+    "lr": [1.0, 0.0, 0.0],    # left/right: + tips toward +y (before inversion)
 }
 
 
@@ -99,12 +102,12 @@ class TeleopSession:
         axes = {**DEFAULT_TILT_AXES, **tilt.get("axes", {})}
         self.tilt_axes = {k: np.asarray(v, dtype=float) / np.linalg.norm(v)
                           for k, v in axes.items()}
-        if tilt.get("invert_ud", False):
-            self.tilt_axes["dpad_up"], self.tilt_axes["dpad_down"] = (
-                self.tilt_axes["dpad_down"], self.tilt_axes["dpad_up"])
-        if tilt.get("invert_lr", False):
-            self.tilt_axes["dpad_left"], self.tilt_axes["dpad_right"] = (
-                self.tilt_axes["dpad_right"], self.tilt_axes["dpad_left"])
+        up_sign = -1.0 if tilt.get("invert_ud", False) else 1.0
+        left_sign = -1.0 if tilt.get("invert_lr", False) else 1.0
+        self.dpad_map = {          # d-pad button -> (component, step direction)
+            "dpad_up": ("ud", up_sign), "dpad_down": ("ud", -up_sign),
+            "dpad_left": ("lr", left_sign), "dpad_right": ("lr", -left_sign),
+        }
 
         # target state, initialized from the arm's home pose
         self.home_pos, self.home_quat = arm.home_pose()
@@ -113,9 +116,9 @@ class TeleopSession:
         self.gripper = 1.0
 
         # orientation bookkeeping (see module docstring)
-        self.yaw = 0.0                 # [rad]
-        self.tilt_dir = "dpad_up"
-        self.tilt_deg = 0.0
+        self.yaw = 0.0                       # [rad]
+        self.tilt = {"ud": 0.0, "lr": 0.0}   # signed [deg]
+        self.active_tilt = self.dpad_map["dpad_up"]
 
         # tap-vs-hold tracking for Cross/Circle (session time, not wall clock)
         self._t = 0.0
@@ -129,17 +132,17 @@ class TeleopSession:
     # -- orientation composition ---------------------------------------
     def _ori_goal(self) -> np.ndarray:
         q = _rotate_quat_world(self.home_quat,
-                               self.tilt_axes[self.tilt_dir] * np.deg2rad(self.tilt_deg))
+                               self.tilt_axes["ud"] * np.deg2rad(self.tilt["ud"]))
+        q = _rotate_quat_world(q, self.tilt_axes["lr"] * np.deg2rad(self.tilt["lr"]))
         return _rotate_quat_world(q, np.array([0.0, 0.0, 1.0]) * self.yaw)
 
-    def _tilt_axis_world(self) -> np.ndarray:
-        """Tilt axis rotated by the current yaw, keeping increments consistent
-        with the yaw-after-tilt composition of _ori_goal()."""
-        qz = np.zeros(4)
-        mujoco.mju_axisAngle2Quat(qz, np.array([0.0, 0.0, 1.0]), self.yaw)
-        out = np.zeros(3)
-        mujoco.mju_rotVecQuat(out, self.tilt_axes[self.tilt_dir], qz)
-        return out
+    def _snap(self, val: float, direction: float) -> float:
+        """Next 30-deg grid value from `val` in `direction` (+1/-1), clamped."""
+        if direction > 0:
+            new = (np.floor(val / self.tilt_step + 1e-6) + 1) * self.tilt_step
+        else:
+            new = (np.ceil(val / self.tilt_step - 1e-6) - 1) * self.tilt_step
+        return float(np.clip(new, -self.tilt_max, self.tilt_max))
 
     # -- discrete buttons ------------------------------------------------
     def _on_button(self, name: str):
@@ -156,12 +159,12 @@ class TeleopSession:
                 print("[rec] discarded")
         elif name == "triangle":
             self.yaw = 0.0
-            self.tilt_deg = 0.0
+            self.tilt = {"ud": 0.0, "lr": 0.0}
             self._auto = (self.home_pos.copy(), self.home_quat.copy())
             print("[auto] homing")
         elif name == "square":
             self.yaw = 0.0
-            self.tilt_deg = 0.0
+            self.tilt = {"ud": 0.0, "lr": 0.0}
             self._auto = (None, self.home_quat.copy())
             print("[auto] orientation reset")
         elif name == "r3":
@@ -169,49 +172,61 @@ class TeleopSession:
             goal[2] = self.descend_z
             self._auto = (goal, None)
             print(f"[auto] descend to z={self.descend_z:.3f}")
-        elif name in self.tilt_axes:
-            if name != self.tilt_dir:
-                self.tilt_dir = name
-                if abs(self.tilt_deg) > 1e-9:
-                    # switching direction returns to untilted orientation first
-                    self.tilt_deg = 0.0
-                    self._auto = (None, self._ori_goal())
-                print(f"[tilt] direction -> {name}")
+        elif name in self.dpad_map:
+            # selection only — nothing moves, current tilt values are kept
+            self.active_tilt = self.dpad_map[name]
+            comp, sgn = self.active_tilt
+            print(f"[tilt] editing {comp} ({'+' if sgn > 0 else '-'}), "
+                  f"now ud={self.tilt['ud']:.0f} lr={self.tilt['lr']:.0f} deg")
         elif name == "ps":
             self.quit = True
 
     # -- Cross/Circle tap-vs-hold tilt control ----------------------------
+    def _set_tilt(self, comp: str, new: float, smooth: bool):
+        """Update one tilt component and drive the orientation toward it.
+
+        smooth=True (taps) animates via auto-move; smooth=False (hold creep)
+        writes the target directly — unless the current orientation is far
+        from the bookkeeping (e.g. a cancelled auto-move), in which case it
+        falls back to auto-move to avoid a jump.
+        """
+        self.tilt[comp] = new
+        goal = self._ori_goal()
+        if not smooth and np.linalg.norm(_quat_err_world(goal, self.quat)) < 0.15:
+            self._auto = None
+            self.quat = goal
+        else:
+            self._auto = (None, goal)
+
     def _update_tilt(self, gp: GamepadState):
-        for name, sign in (("cross", 1.0), ("circle", -1.0)):
+        comp, sgn = self.active_tilt
+        for name in ("cross", "circle"):
             held = gp.is_held(name)
             was = self._btn_prev.get(name, False)
             if held and not was:
                 self._press_t[name] = self._t
+            cur = self.tilt[comp]
+            # step direction: Cross follows the d-pad selection, Circle goes toward 0
+            direction = sgn if name == "cross" else (-np.sign(cur) if cur else 0.0)
             if held and (self._t - self._press_t.get(name, self._t)) >= self.hold_threshold:
-                # hold: slow continuous tilt
-                new = float(np.clip(self.tilt_deg + sign * self.tilt_hold_speed * self.dt,
-                                    0.0, self.tilt_max))
-                delta = new - self.tilt_deg
-                if abs(delta) > 1e-9:
-                    self._auto = None
-                    self.quat = _rotate_quat_world(
-                        self.quat, self._tilt_axis_world() * np.deg2rad(delta))
-                    self.tilt_deg = new
+                # hold: slow continuous change from the current value
+                step = direction * self.tilt_hold_speed * self.dt
+                if name == "circle":
+                    step = -np.sign(cur) * min(abs(cur), self.tilt_hold_speed * self.dt)
+                new = float(np.clip(cur + step, -self.tilt_max, self.tilt_max))
+                if abs(new - cur) > 1e-9:
+                    self._set_tilt(comp, new, smooth=False)
             if was and not held:
-                if (self._t - self._press_t.get(name, self._t)) < self.hold_threshold:
-                    # tap: snap onto the 30-degree grid
-                    if sign > 0:
-                        new = min(self.tilt_max,
-                                  (np.floor(self.tilt_deg / self.tilt_step + 1e-6) + 1)
-                                  * self.tilt_step)
-                    else:
-                        new = max(0.0,
-                                  (np.ceil(self.tilt_deg / self.tilt_step - 1e-6) - 1)
-                                  * self.tilt_step)
-                    if abs(new - self.tilt_deg) > 1e-9:
-                        self.tilt_deg = float(new)
-                        self._auto = (None, self._ori_goal())
-                        print(f"[tilt] {self.tilt_dir} -> {self.tilt_deg:.0f} deg")
+                if (self._t - self._press_t.get(name, self._t)) < self.hold_threshold \
+                        and direction != 0.0:
+                    new = self._snap(cur, direction)
+                    if name == "circle":
+                        # never overshoot past 0 when cancelling
+                        new = 0.0 if new * cur < 0 else new
+                    if abs(new - cur) > 1e-9:
+                        self._set_tilt(comp, new, smooth=True)
+                        print(f"[tilt] {comp} {cur:.0f} -> {new:.0f} deg "
+                              f"(ud={self.tilt['ud']:.0f} lr={self.tilt['lr']:.0f})")
             self._btn_prev[name] = held
 
     # -- continuous integration -------------------------------------------

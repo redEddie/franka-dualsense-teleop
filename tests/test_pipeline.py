@@ -108,11 +108,12 @@ def main():
     assert np.linalg.norm(st.ee_pos - s.home_pos) < 0.02
     print("[ok] homing")
 
-    # --- tilt: tap Cross -> 30, tap again -> 60 -------------------------------
+    # --- tilt: tap Cross -> 30, tap again -> 60 (ud component) ----------------
     st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
     assert abs(tilt_of(s, tg.quat) - 30) < 2, f"tilt {tilt_of(s, tg.quat):.1f} != 30"
     st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
     assert abs(tilt_of(s, tg.quat) - 60) < 2, f"tilt {tilt_of(s, tg.quat):.1f} != 60"
+    assert abs(abs(s.tilt["ud"]) - 60) < 1e-6
     print("[ok] Cross taps: 0 -> 30 -> 60 deg")
 
     # --- hold Cross: continuous creep past the grid ---------------------------
@@ -120,31 +121,37 @@ def main():
     creep = tilt_of(s, tg.quat)
     # 1.0 s hold - 0.35 s threshold = 0.65 s at 40 deg/s ~= 26 deg on top of 60
     assert 70 < creep < 90, f"hold creep angle {creep:.1f} not in (70, 90)"
-    assert abs(s.tilt_deg - creep) < 2, f"bookkeeping {s.tilt_deg:.1f} vs actual {creep:.1f}"
+    assert abs(abs(s.tilt["ud"]) - creep) < 2, f"bookkeeping {s.tilt['ud']:.1f} vs {creep:.1f}"
     print(f"[ok] Cross hold creep -> {creep:.1f} deg (ambiguous, off-grid)")
 
-    # --- snap from ambiguous angle: Circle tap -> down to 60 ------------------
+    # --- continuity: opposite d-pad direction edits the SAME value ------------
+    st, tg = run_ticks(s, [GamepadState(pressed=["dpad_down"])] + idle(hz))
+    assert abs(tilt_of(s, tg.quat) - creep) < 2, "d-pad selection must not move the robot"
+    st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
+    assert abs(tilt_of(s, tg.quat) - 60) < 2, \
+        f"opposite-direction step from {creep:.1f} should snap to 60, got {tilt_of(s, tg.quat):.1f}"
+    print(f"[ok] dpad_down keeps value; Cross steps {creep:.1f} -> 60 (continuous)")
+
+    # --- Circle tap: toward 0 on the active component ---------------------------
     st, tg = run_ticks(s, tap("circle") + idle(2 * hz))
-    assert abs(tilt_of(s, tg.quat) - 60) < 2, f"snap down {tilt_of(s, tg.quat):.1f} != 60"
-    print("[ok] Circle tap from ambiguous angle snaps down to 60 deg")
+    assert abs(tilt_of(s, tg.quat) - 30) < 2, f"cancel step {tilt_of(s, tg.quat):.1f} != 30"
+    print("[ok] Circle tap 60 -> 30 (toward zero)")
 
-    # ... and Cross tap from 60 -> 90 (capped at max)
-    st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
-    assert abs(tilt_of(s, tg.quat) - 90) < 2
-    st, tg = run_ticks(s, tap("cross") + idle(hz))  # at max: no change
-    assert abs(tilt_of(s, tg.quat) - 90) < 2
-    print("[ok] Cross tap 60 -> 90, capped at 90")
+    # --- combined tilt: add lr on top of ud ------------------------------------
+    st, tg = run_ticks(s, [GamepadState(pressed=["dpad_left"])] + tap("cross") + idle(2 * hz))
+    assert abs(abs(s.tilt["lr"]) - 30) < 1e-6 and abs(abs(s.tilt["ud"]) - 30) < 1e-6
+    assert tilt_of(s, tg.quat) > 35, f"combined tilt too small: {tilt_of(s, tg.quat):.1f}"
+    print(f"[ok] combined tilt ud=30 + lr=30 -> total {tilt_of(s, tg.quat):.1f} deg")
 
-    # --- direction switch resets tilt -----------------------------------------
-    st, tg = run_ticks(s, [GamepadState(pressed=["dpad_left"])] + idle(2 * hz))
-    assert tilt_of(s, tg.quat) < 2, f"direction switch should untilt, got {tilt_of(s, tg.quat):.1f}"
-    st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
-    assert abs(tilt_of(s, tg.quat) - 30) < 2
-    print("[ok] d-pad switch resets tilt; new direction steps to 30 deg")
+    # --- max cap on the ud component -------------------------------------------
+    st, tg = run_ticks(s, [GamepadState(pressed=["dpad_up"])] +
+                          tap("cross") + tap("cross") + tap("cross") + idle(2 * hz))
+    assert abs(abs(s.tilt["ud"]) - 90) < 1e-6, f"ud should cap at 90, got {s.tilt['ud']}"
+    print("[ok] ud capped at 90 deg")
 
     # --- Square: full orientation reset ----------------------------------------
     st, tg = run_ticks(s, [GamepadState(pressed=["square"])] + idle(2 * hz))
-    assert tilt_of(s, tg.quat) < 2 and s.tilt_deg == 0.0 and s.yaw == 0.0
+    assert tilt_of(s, tg.quat) < 2 and s.tilt == {"ud": 0.0, "lr": 0.0} and s.yaw == 0.0
     print("[ok] Square resets orientation")
 
     print("\nALL TESTS PASSED")
