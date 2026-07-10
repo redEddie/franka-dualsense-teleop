@@ -9,12 +9,16 @@ control:
   physics_substeps: auto # sim only: derived from model timestep
 
 speed:
-  xy: 0.40               # m/s at full left-stick deflection
-  z: 0.25                # m/s at full right-stick deflection (z height)
-  yaw: 1.2               # rad/s for L1/R1 yaw
+  xy: 0.25               # m/s at full left-stick deflection
+  z: 0.20                # m/s at full right-stick deflection (z height)
+  yaw: 1.0               # rad/s for L1/R1 yaw
   gripper: 0.20          # m/s equivalent width rate at full trigger (full stroke ~0.4 s)
-  auto_xyz: 0.80         # m/s for machine-generated moves (homing/descend)
-  auto_rot: 2.5          # rad/s for machine-generated rotations (tilt/orientation reset)
+  auto_xyz: 0.50         # m/s cruise speed for machine-generated moves (homing/descend)
+  auto_rot: 1.8          # rad/s for machine-generated rotations (tilt/orientation reset)
+
+accel:                   # target-side acceleration limits -> smooth velocity ramps
+  xyz: 1.0               # m/s^2 (stick response ramp + auto-move trapezoidal arrival)
+  yaw: 4.0               # rad/s^2
 
 gamepad:
   deadzone: 0.08
@@ -48,11 +52,13 @@ home:
   qpos: [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
 
 ik:
-  pos_gain: 8.0          # target-error -> velocity gain
-  rot_gain: 8.0
+  pos_gain: 5.0          # target-error -> velocity gain
+  rot_gain: 5.0
   damping: 1.0e-4        # DLS lambda
-  nullspace_gain: 0.5
-  max_joint_vel: 2.0     # rad/s clamp on IK output
+  nullspace_gain: 0.25   # posture bias (high values jerk the elbow around)
+  max_lin_vel: 0.6       # m/s task-space velocity clamp
+  max_ang_vel: 2.0       # rad/s
+  max_joint_vel: 1.2     # rad/s clamp on IK output
   cmd_lag_limit: 0.15    # rad, anti-windup: max lead of command over measured q
 
 recorder:

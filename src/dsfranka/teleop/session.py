@@ -80,6 +80,12 @@ class TeleopSession:
         self.recorder = recorder or EpisodeRecorder(cfg["recorder"]["out_dir"])
         self.dt = 1.0 / cfg["control"]["rate_hz"]
         self.speed = cfg["speed"]
+        accel = cfg.get("accel", {})
+        self.acc_xyz = float(accel.get("xyz", 1.0))
+        self.acc_yaw = float(accel.get("yaw", 4.0))
+        # slew-rate-limited velocity state (smooth ramps instead of stick steps)
+        self._v = np.zeros(3)
+        self._yaw_v = 0.0
         ws = cfg["workspace"]
         self.ws_lo = np.array([ws["x"][0], ws["y"][0], ws["z"][0]])
         self.ws_hi = np.array([ws["x"][1], ws["y"][1], ws["z"][1]])
@@ -209,22 +215,29 @@ class TeleopSession:
             self._btn_prev[name] = held
 
     # -- continuous integration -------------------------------------------
-    def _integrate_manual(self, gp: GamepadState):
-        v = np.zeros(3)
-        v[0] = gp.ly * self.speed["xy"]          # stick up -> +x (away from base)
-        v[1] = -gp.lx * self.speed["xy"]         # stick left -> +y
-        v[2] = gp.ry * self.speed["z"]           # right stick up -> +z
-        self.pos = np.clip(self.pos + v * self.dt, self.ws_lo, self.ws_hi)
+    def _slew(self, current, desired, accel):
+        """Move `current` toward `desired` at bounded acceleration."""
+        return current + np.clip(desired - current, -accel * self.dt, accel * self.dt)
 
-        yaw_rate = 0.0
+    def _integrate_manual(self, gp: GamepadState):
+        v_des = np.array([
+            gp.ly * self.speed["xy"],            # stick up -> +x (away from base)
+            -gp.lx * self.speed["xy"],           # stick left -> +y
+            gp.ry * self.speed["z"],             # right stick up -> +z
+        ])
+        self._v = self._slew(self._v, v_des, self.acc_xyz)
+        self.pos = np.clip(self.pos + self._v * self.dt, self.ws_lo, self.ws_hi)
+
+        yaw_des = 0.0
         if gp.is_held("l1"):
-            yaw_rate += self.speed["yaw"]
+            yaw_des += self.speed["yaw"]
         if gp.is_held("r1"):
-            yaw_rate -= self.speed["yaw"]
-        if yaw_rate != 0.0:
-            self.yaw += yaw_rate * self.dt
+            yaw_des -= self.speed["yaw"]
+        self._yaw_v = float(self._slew(self._yaw_v, yaw_des, self.acc_yaw))
+        if abs(self._yaw_v) > 1e-9:
+            self.yaw += self._yaw_v * self.dt
             self.quat = _rotate_quat_world(
-                self.quat, np.array([0.0, 0.0, 1.0]) * yaw_rate * self.dt)
+                self.quat, np.array([0.0, 0.0, 1.0]) * self._yaw_v * self.dt)
 
         g_rate = (gp.l2 - gp.r2) * self.speed["gripper"] / 0.08  # width-rate -> [0,1]-rate
         self.gripper = float(np.clip(self.gripper + g_rate * self.dt, 0.0, 1.0))
@@ -233,21 +246,27 @@ class TeleopSession:
         goal_pos, goal_quat = self._auto
         v_auto = self.speed.get("auto_xyz", self.speed["xy"])
         w_auto = self.speed.get("auto_rot", self.speed["yaw"])
+        # decay any leftover manual velocity so mode switches don't kick
+        self._v = self._slew(self._v, np.zeros(3), self.acc_xyz)
+        self._yaw_v = float(self._slew(self._yaw_v, 0.0, self.acc_yaw))
         done = True
         if goal_pos is not None:
             err = goal_pos - self.pos
             dist = np.linalg.norm(err)
             if dist > 1e-9:
-                step = min(v_auto * self.dt, dist)
+                # trapezoidal arrival: cruise, then decelerate into the goal
+                v = min(v_auto, np.sqrt(2.0 * self.acc_xyz * dist))
+                step = min(v * self.dt, dist)
                 self.pos = np.clip(self.pos + err / dist * step, self.ws_lo, self.ws_hi)
             done &= bool(np.linalg.norm(goal_pos - self.pos) < AUTO_DONE_POS)
         if goal_quat is not None:
             vec = _quat_err_world(goal_quat, self.quat)
             ang = np.linalg.norm(vec)
-            max_step = w_auto * self.dt
-            if ang > max_step:
-                vec *= max_step / ang
-            self.quat = _rotate_quat_world(self.quat, vec)
+            if ang > 1e-9:
+                w = min(w_auto, np.sqrt(2.0 * self.acc_yaw * ang))
+                if ang > w * self.dt:
+                    vec *= w * self.dt / ang
+                self.quat = _rotate_quat_world(self.quat, vec)
             done &= bool(np.linalg.norm(_quat_err_world(goal_quat, self.quat)) < AUTO_DONE_ROT)
         if done:
             self._auto = None

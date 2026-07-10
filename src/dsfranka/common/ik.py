@@ -14,10 +14,12 @@ class DiffIK:
         self.m = model
         self.site_id = model.site(site).id
         self.q_home = np.asarray(q_home, dtype=float)
-        self.pos_gain = float(cfg.get("pos_gain", 8.0))
-        self.rot_gain = float(cfg.get("rot_gain", 8.0))
+        self.pos_gain = float(cfg.get("pos_gain", 5.0))
+        self.rot_gain = float(cfg.get("rot_gain", 5.0))
         self.damping = float(cfg.get("damping", 1e-4))
-        self.null_gain = float(cfg.get("nullspace_gain", 0.5))
+        self.null_gain = float(cfg.get("nullspace_gain", 0.25))
+        self.max_lin_vel = float(cfg.get("max_lin_vel", 0.6))
+        self.max_ang_vel = float(cfg.get("max_ang_vel", 2.0))
         self.max_qvel = float(cfg.get("max_joint_vel", 2.0))
         # anti-windup: commanded q may not lead measured q by more than this
         self.cmd_lag_limit = float(cfg.get("cmd_lag_limit", 0.15))
@@ -63,6 +65,15 @@ class DiffIK:
         rot_vec = np.zeros(3)
         mujoco.mju_quat2Vel(rot_vec, quat_err, 1.0)
         err[3:] = self.rot_gain * rot_vec
+
+        # task-space velocity clamp: large target jumps become bounded,
+        # constant-speed approaches instead of proportional lunges
+        lin = np.linalg.norm(err[:3])
+        if lin > self.max_lin_vel:
+            err[:3] *= self.max_lin_vel / lin
+        ang = np.linalg.norm(err[3:])
+        if ang > self.max_ang_vel:
+            err[3:] *= self.max_ang_vel / ang
 
         mujoco.mj_jacSite(self.m, data, self._jacp, self._jacr, self.site_id)
         J = np.vstack([self._jacp[:, self.dof], self._jacr[:, self.dof]])  # (6,7)
