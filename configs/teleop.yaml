@@ -35,7 +35,9 @@ tilt:                    # Cross = +step / hold-increase, Circle = -step / hold-
   max_deg: 90
   hold_speed_deg: 40     # continuous tilt rate while holding [deg/s]
   hold_threshold_s: 0.35 # press shorter than this = tap (snap step), longer = hold
-  axes:                  # world-frame rotation axis per d-pad direction
+  invert_ud: true        # swap the up/down tilt directions
+  invert_lr: true        # swap the left/right tilt directions
+  axes:                  # world-frame rotation axis per d-pad direction (before inversion)
     dpad_up: [0, -1, 0]      # tip toward +x (away from base)
     dpad_down: [0, 1, 0]     # tip toward -x
     dpad_left: [1, 0, 0]     # tip toward +y

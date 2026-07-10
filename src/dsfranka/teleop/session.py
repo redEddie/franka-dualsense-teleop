@@ -93,6 +93,12 @@ class TeleopSession:
         axes = {**DEFAULT_TILT_AXES, **tilt.get("axes", {})}
         self.tilt_axes = {k: np.asarray(v, dtype=float) / np.linalg.norm(v)
                           for k, v in axes.items()}
+        if tilt.get("invert_ud", False):
+            self.tilt_axes["dpad_up"], self.tilt_axes["dpad_down"] = (
+                self.tilt_axes["dpad_down"], self.tilt_axes["dpad_up"])
+        if tilt.get("invert_lr", False):
+            self.tilt_axes["dpad_left"], self.tilt_axes["dpad_right"] = (
+                self.tilt_axes["dpad_right"], self.tilt_axes["dpad_left"])
 
         # target state, initialized from the arm's home pose
         self.home_pos, self.home_quat = arm.home_pose()
