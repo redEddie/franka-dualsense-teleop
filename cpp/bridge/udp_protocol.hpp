@@ -18,6 +18,9 @@ struct CmdPacket {                       // python: "<II8dB"
   uint8_t flags;
 };
 
+// TODO(protocol v2): append external wrench estimate O_F_ext_hat_K (6 doubles)
+// so pressing/dragging forces can be recorded in episodes. Requires matching
+// changes in franka_client.py STATE_FMT and the episode recorder.
 struct StatePacket {                     // python: "<II22dB"
   uint32_t magic;
   uint32_t seq;

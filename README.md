@@ -54,6 +54,21 @@ Panda로 바꾸려면 yaml에서 `robot: panda`, 브리지는 `-DDSFRANKA_ROBOT=
 분리되어 있다. 호밍/자동하강은 기계 생성 궤적이라 빠르게(0.8 m/s), 수동 조작은 정밀도를
 위해 0.4 m/s 기본. 실물에서는 브리지가 로봇별 관절 속도 한계의 40%로 추가 클램프한다.
 
+## 워크스페이스 캘리브레이션 (kinesthetic)
+
+텔레옵 타겟은 `configs/teleop.yaml`의 `workspace` 박스로 클램프된다. 실물에서 이 박스를
+직접 정하려면: 브리지를 켜둔 채(제어 시작 전 대기 상태에서도 상태를 퍼블리시함) 로봇을
+핸드가이딩으로 원하는 범위 전체를 훑는다.
+
+```bash
+python scripts/calibrate_workspace.py --duration 60          # 미리보기 (dry run)
+python scripts/calibrate_workspace.py --duration 60 --write  # 적용
+```
+
+결과는 `configs/workspace_calibrated.yaml`로 저장되며, 존재하면 로드 시점에 teleop.yaml의
+workspace를 대체한다(파일을 지우면 원복). z 하한이 음수여도 무방하다 — 베이스 평면 아래로
+누르기/끌기 작업을 할 거면 스윕에 그 높이를 포함시키면 된다.
+
 ## 레포 구조
 
 ```
@@ -121,7 +136,11 @@ python scripts/teleop_real.py
 ## 로드맵
 
 - [x] MuJoCo 텔레옵 + 에피소드 녹화
+- [x] FR3 모델/한계 고정 (config + cmake)
+- [x] kinesthetic 워크스페이스 캘리브레이션 도구 (실물 검증 필요)
 - [ ] 실물 franka_bridge 검증 (joint position streaming)
+- [ ] **외력 측정** — `O_F_ext_hat_K`(추정 외력 렌치)를 StatePacket에 추가하고 에피소드
+      obs로 녹화 (누르기/끌기 작업용; `cpp/bridge/udp_protocol.hpp`의 TODO 참고)
 - [ ] 브리지 cartesian impedance(토크) 제어로 업그레이드 — 접촉 작업 안정성
 - [ ] 카메라 관측 녹화 (RealSense) → LeRobot 포맷 변환
 - [ ] DualSense 럼블/LED 피드백 (녹화 상태 표시, 충돌 경고)

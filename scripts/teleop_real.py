@@ -11,11 +11,10 @@ import argparse
 import pathlib
 import sys
 
-import yaml
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from dsfranka.common.config import load_config
 from dsfranka.data.recorder import EpisodeRecorder
 from dsfranka.input.dualsense_evdev import DualSenseEvdev
 from dsfranka.real.franka_client import FrankaArm
@@ -28,7 +27,7 @@ def main():
     ap.add_argument("--bridge-host", default="127.0.0.1")
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(open(args.config))
+    cfg = load_config(args.config)
     arm = FrankaArm(cfg, bridge_host=args.bridge_host)
     g = cfg["gamepad"]
     pad = DualSenseEvdev(deadzone=g["deadzone"],

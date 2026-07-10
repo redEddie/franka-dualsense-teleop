@@ -8,11 +8,10 @@ import argparse
 import pathlib
 import sys
 
-import yaml
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from dsfranka.common.config import load_config
 from dsfranka.data.recorder import EpisodeRecorder
 from dsfranka.input.gamepad import MockGamepad
 from dsfranka.sim.mujoco_robot import MujocoArm
@@ -27,7 +26,7 @@ def main():
     ap.add_argument("--ticks", type=int, default=None, help="stop after N ticks")
     args = ap.parse_args()
 
-    cfg = yaml.safe_load(open(args.config))
+    cfg = load_config(args.config)
     arm = MujocoArm(cfg)
 
     if args.mock:
