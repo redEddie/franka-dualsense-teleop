@@ -7,6 +7,12 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# robot selection (compile-time joint limits, see bridge/robot_limits.hpp).
+# keep in sync with `robot:` in configs/teleop.yaml
+set(DSFRANKA_ROBOT "fr3" CACHE STRING "target robot: fr3 | panda")
+set_property(CACHE DSFRANKA_ROBOT PROPERTY STRINGS fr3 panda)
+message(STATUS "dsfranka robot type: ${DSFRANKA_ROBOT}")
+
 # libfranka: install from source (see cpp/README.md), then
 #   cmake -B build -DFranka_DIR=/path/to/libfranka/build
 find_package(Franka REQUIRED)
@@ -20,3 +26,6 @@ target_link_libraries(02_move_to_home Franka::Franka)
 
 add_executable(franka_bridge bridge/franka_bridge.cpp)
 target_link_libraries(franka_bridge Franka::Franka Threads::Threads)
+if(DSFRANKA_ROBOT STREQUAL "panda")
+  target_compile_definitions(franka_bridge PRIVATE DSFRANKA_ROBOT_PANDA)
+endif()

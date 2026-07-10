@@ -142,16 +142,20 @@ class TeleopSession:
 
     def _integrate_auto(self):
         goal_pos, goal_quat = self._auto
+        v_auto = self.speed.get("auto_xyz", self.speed["xy"])
+        w_auto = self.speed.get("auto_rot", self.speed["rot"])
         done = True
         if goal_pos is not None:
             err = goal_pos - self.pos
-            step = np.clip(err, -self.speed["xy"] * self.dt, self.speed["xy"] * self.dt)
-            self.pos = np.clip(self.pos + step, self.ws_lo, self.ws_hi)
+            dist = np.linalg.norm(err)
+            if dist > 1e-9:
+                step = min(v_auto * self.dt, dist)
+                self.pos = np.clip(self.pos + err / dist * step, self.ws_lo, self.ws_hi)
             done &= bool(np.linalg.norm(goal_pos - self.pos) < AUTO_DONE_POS)
         if goal_quat is not None:
             vec = _quat_err_world(goal_quat, self.quat)
             ang = np.linalg.norm(vec)
-            max_step = self.speed["rot"] * self.dt
+            max_step = w_auto * self.dt
             if ang > max_step:
                 vec *= max_step / ang
             self.quat = _rotate_quat_world(self.quat, vec)

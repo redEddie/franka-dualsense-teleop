@@ -7,14 +7,13 @@ import mujoco
 import numpy as np
 
 from ..common.ik import DiffIK
+from ..common.models import scene_path
 from ..common.types import EETarget, RobotState
-
-ASSETS = pathlib.Path(__file__).resolve().parents[3] / "assets"
 
 
 class MujocoArm:
     def __init__(self, cfg: dict, scene: str | pathlib.Path | None = None):
-        scene = pathlib.Path(scene) if scene else ASSETS / "franka_emika_panda" / "scene_teleop.xml"
+        scene = pathlib.Path(scene) if scene else scene_path(cfg)
         self.m = mujoco.MjModel.from_xml_path(str(scene))
         self.d = mujoco.MjData(self.m)
         self.q_home = np.asarray(cfg["home"]["qpos"], dtype=float)
@@ -23,6 +22,10 @@ class MujocoArm:
         self.substeps = max(1, round(self.dt / self.m.opt.timestep))
         self._marker_id = self.m.body("target_marker").mocapid[0] if "target_marker" in [
             self.m.body(i).name for i in range(self.m.nbody)] else -1
+        # gripper: last actuator (tendon servo, same layout for panda and fr3)
+        self._grip_act = self.m.actuator("actuator8").id
+        self._grip_lo, self._grip_hi = self.m.actuator_ctrlrange[self._grip_act]
+        self._finger_adr = [self.m.joint(n).qposadr[0] for n in ("finger_joint1", "finger_joint2")]
         self.reset()
 
     def reset(self):
@@ -42,7 +45,7 @@ class MujocoArm:
         q_cmd = self.ik.step(self.d, target.pos, target.quat, dt)
         target.q_ref = q_cmd
         self.d.ctrl[:7] = q_cmd
-        self.d.ctrl[7] = target.gripper * 255.0
+        self.d.ctrl[self._grip_act] = self._grip_lo + target.gripper * (self._grip_hi - self._grip_lo)
         if self._marker_id >= 0:
             self.d.mocap_pos[self._marker_id] = target.pos
             self.d.mocap_quat[self._marker_id] = target.quat
@@ -57,6 +60,6 @@ class MujocoArm:
             dq=self.d.qvel[:7].copy(),
             ee_pos=ee_pos,
             ee_quat=ee_quat,
-            gripper_width=float(self.d.qpos[7] + self.d.qpos[8]),
+            gripper_width=float(sum(self.d.qpos[a] for a in self._finger_adr)),
             t=float(self.d.time),
         )

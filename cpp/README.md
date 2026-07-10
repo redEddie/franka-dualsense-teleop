@@ -24,8 +24,13 @@ cmake --build build -j
 ```bash
 cd cpp
 cmake -B build -DFranka_DIR=<libfranka>/build   # 시스템 설치했다면 생략 가능
+# 로봇 타입은 FR3가 기본. Panda면: cmake -B build -DDSFRANKA_ROBOT=panda ...
 cmake --build build -j
 ```
+
+로봇별 관절 위치/속도 한계는 `bridge/robot_limits.hpp`에 컴파일 타임으로 고정되며
+(`configs/teleop.yaml`의 `robot:`과 짝 유지), 브리지가 위치 한계(마진 0.02 rad)와
+속도 한계(공식 한계의 40%)로 모든 명령을 클램프한다.
 
 ## 3. 실습 순서
 

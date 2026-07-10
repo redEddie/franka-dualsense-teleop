@@ -27,6 +27,7 @@
 #include <franka/gripper.h>
 #include <franka/robot.h>
 
+#include "robot_limits.hpp"
 #include "udp_protocol.hpp"
 
 using dsfranka::CmdPacket;
@@ -35,8 +36,15 @@ using dsfranka::StatePacket;
 namespace {
 
 constexpr double kSmoothing = 0.995;      // per-ms exponential filter on targets
-constexpr double kMaxDqPerTick = 0.001;   // rad per 1 ms tick (~1 rad/s) hard clamp
 constexpr double kStartTolerance = 0.05;  // rad: first target must be near current q
+
+// per-joint hard clamps derived from the compile-time robot selection
+double max_dq_per_tick(int i) { return dsfranka::kVelFraction * dsfranka::kDqMax[i] * 1e-3; }
+double clamp_q(int i, double q) {
+  const double lo = dsfranka::kQLower[i] + dsfranka::kQMargin;
+  const double hi = dsfranka::kQUpper[i] - dsfranka::kQMargin;
+  return q < lo ? lo : (q > hi ? hi : q);
+}
 
 std::mutex g_mtx;
 std::array<double, 7> g_target_q{};
@@ -137,6 +145,8 @@ int main(int argc, char** argv) {
     std::cerr << "usage: " << argv[0] << " <robot-ip>" << std::endl;
     return 1;
   }
+  std::cout << "franka_bridge — robot type: " << dsfranka::kRobotName
+            << " (compile-time, see cpp/bridge/robot_limits.hpp)" << std::endl;
 
   // sockets
   int rx = socket(AF_INET, SOCK_DGRAM, 0);
@@ -202,11 +212,12 @@ int main(int argc, char** argv) {
         tgt = g_target_q;
       }
       for (int i = 0; i < 7; i++) {
-        double next = kSmoothing * q_cmd[i] + (1.0 - kSmoothing) * tgt[i];
+        double next = kSmoothing * q_cmd[i] + (1.0 - kSmoothing) * clamp_q(i, tgt[i]);
         double step = next - q_cmd[i];
-        if (step > kMaxDqPerTick) step = kMaxDqPerTick;
-        if (step < -kMaxDqPerTick) step = -kMaxDqPerTick;
-        q_cmd[i] += step;
+        const double dq_max = max_dq_per_tick(i);
+        if (step > dq_max) step = dq_max;
+        if (step < -dq_max) step = -dq_max;
+        q_cmd[i] = clamp_q(i, q_cmd[i] + step);
       }
       publish_state(rs, gripper_width, seq++);
       return franka::JointPositions(q_cmd);

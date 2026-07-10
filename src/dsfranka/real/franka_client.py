@@ -7,7 +7,6 @@ NOTE: untested until the bridge runs against a real FCI connection.
 """
 from __future__ import annotations
 
-import pathlib
 import socket
 import struct
 import time
@@ -16,9 +15,8 @@ import mujoco
 import numpy as np
 
 from ..common.ik import DiffIK
+from ..common.models import scene_path
 from ..common.types import EETarget, RobotState
-
-ASSETS = pathlib.Path(__file__).resolve().parents[3] / "assets"
 
 MAGIC = 0x44534652  # "DSFR"
 # command: magic u32, seq u32, q[7] f64, gripper f64, flags u8  (little-endian, packed)
@@ -32,7 +30,7 @@ class FrankaArm:
     def __init__(self, cfg: dict, bridge_host: str = "127.0.0.1",
                  cmd_port: int = 5555, state_port: int = 5556):
         # kinematics-only shadow model (no physics stepping)
-        self.m = mujoco.MjModel.from_xml_path(str(ASSETS / "franka_emika_panda" / "scene_teleop.xml"))
+        self.m = mujoco.MjModel.from_xml_path(str(scene_path(cfg)))
         self.d = mujoco.MjData(self.m)
         self.q_home = np.asarray(cfg["home"]["qpos"], dtype=float)
         self.ik = DiffIK(self.m, "tcp", self.q_home, cfg["ik"])

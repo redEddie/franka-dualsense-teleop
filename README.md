@@ -37,10 +37,27 @@ IK를 풀고 관절 타겟을 C++ 브리지로 스트리밍한다(브리지가 1
 자동 이동(호밍/틸트/하강) 중 스틱을 크게 움직이면 즉시 취소된다.
 매핑 파라미터(속도, 데드존, 워크스페이스 한계, 하강 높이, 틸트 각도)는 `configs/teleop.yaml`.
 
+## 로봇 타입 선택 (FR3 / Panda)
+
+이 레포는 **FR3 기본**으로 고정되어 있다. 두 곳이 짝을 이룬다:
+
+| 위치 | 설정 | 효과 |
+|---|---|---|
+| `configs/teleop.yaml` → `robot: fr3` | Python/시뮬 | MuJoCo 모델·IK 관절한계 선택 (`assets/franka_fr3/`) |
+| `cmake -B build -DDSFRANKA_ROBOT=fr3` (기본값) | C++ 브리지 | 컴파일 타임 관절 위치/속도 한계 (`cpp/bridge/robot_limits.hpp`) |
+
+FR3 모델은 menagerie `franka_fr3`(관절한계 FR3 실측값)에 Franka Hand를 결합한
+`fr3_hand.xml`을 사용하며, 홈 TCP pose가 Panda 모델과 정확히 일치함을 검증했다.
+Panda로 바꾸려면 yaml에서 `robot: panda`, 브리지는 `-DDSFRANKA_ROBOT=panda`로 재빌드.
+
+속도 관련: 스틱 수동 조작 속도(`speed.xy` 등)와 자동 이동 속도(`speed.auto_xyz/auto_rot`)가
+분리되어 있다. 호밍/자동하강은 기계 생성 궤적이라 빠르게(0.8 m/s), 수동 조작은 정밀도를
+위해 0.4 m/s 기본. 실물에서는 브리지가 로봇별 관절 속도 한계의 40%로 추가 클램프한다.
+
 ## 레포 구조
 
 ```
-assets/                  MuJoCo 모델 (menagerie panda + tcp site 추가, 텔레옵 씬)
+assets/                  MuJoCo 모델: franka_fr3 (fr3+hand 결합, 기본) / franka_emika_panda
 configs/teleop.yaml      매핑/속도/IK/워크스페이스 설정
 src/dsfranka/
   common/                types, DiffIK(공통 IK), Rate
