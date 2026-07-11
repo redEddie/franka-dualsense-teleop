@@ -31,6 +31,12 @@ class MujocoArm:
     def reset(self):
         key = self.m.key("home").id
         mujoco.mj_resetDataKeyframe(self.m, self.d, key)
+        # the robot-file keyframe doesn't cover scene objects: put free bodies
+        # (cube etc.) back at their XML spawn pose instead of zero-padded origin
+        for j in range(self.m.njnt):
+            if self.m.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE:
+                adr = self.m.jnt_qposadr[j]
+                self.d.qpos[adr:adr + 7] = self.m.qpos0[adr:adr + 7]
         mujoco.mj_forward(self.m, self.d)
         self.ik.reset_cmd(self.d.qpos[:7])
 
