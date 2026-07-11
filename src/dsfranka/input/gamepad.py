@@ -22,27 +22,55 @@ class GamepadState:
     r2: float = 0.0   # [0, 1]
     held: dict = field(default_factory=dict)      # button -> bool
     pressed: list = field(default_factory=list)   # rising edges since last poll
+    gyro: tuple = (0.0, 0.0, 0.0)                 # raw IMU (driver-dependent units)
+    accel: tuple = (0.0, 0.0, 0.0)
 
     def is_held(self, name: str) -> bool:
         return bool(self.held.get(name, False))
 
 
 class Gamepad:
-    """Driver interface: poll() returns the latest state with edge events."""
+    """Driver interface: poll() returns the latest state with edge events.
+
+    Feedback methods are no-ops by default — only haptics-capable drivers
+    (DualSenseHID) override them, so callers can invoke them unconditionally.
+    """
 
     def poll(self) -> GamepadState:
         raise NotImplementedError
+
+    # --- haptic feedback (optional capability) -------------------------
+    def set_rumble(self, low: float, high: float) -> None:
+        """low/high frequency motor intensity, 0..1 each."""
+
+    def set_trigger(self, side: str, force: float) -> None:
+        """Adaptive trigger resistance: side 'L2'|'R2', force 0..1 (0 = off)."""
+
+    def set_lightbar(self, r: int, g: int, b: int) -> None:
+        """Lightbar RGB, 0..255 each."""
 
     def close(self) -> None:
         pass
 
 
 class MockGamepad(Gamepad):
-    """Scriptable pad for tests/headless smoke runs."""
+    """Scriptable pad for tests/headless smoke runs. Records feedback calls."""
 
     def __init__(self, script=None):
         # script: iterable of GamepadState, replayed once then zeros
         self._script = iter(script) if script is not None else iter(())
+        self.rumble = (0.0, 0.0)
+        self.trigger = {"L2": 0.0, "R2": 0.0}
+        self.lightbar = (0, 0, 0)
 
     def poll(self) -> GamepadState:
         return next(self._script, GamepadState())
+
+    def set_rumble(self, low: float, high: float) -> None:
+        self.rumble = (low, high)
+
+    def set_trigger(self, side: str, force: float) -> None:
+        self.trigger[side] = force
+
+    def set_lightbar(self, r: int, g: int, b: int) -> None:
+        self.lightbar = (r, g, b)

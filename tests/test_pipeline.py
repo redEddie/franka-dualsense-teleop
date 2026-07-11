@@ -67,6 +67,11 @@ def main():
     assert moved_x > 0.12, f"stick +x motion too small: {moved_x:.3f} m"
     print(f"[ok] left stick moved EE +{moved_x:.3f} m in x while recording")
 
+    # feedback while pinned against the workspace x face + recording:
+    assert s.gamepad.rumble[1] > 0.3, f"boundary rumble missing: {s.gamepad.rumble}"
+    assert s.gamepad.lightbar[0] == 255, f"lightbar should be red while recording: {s.gamepad.lightbar}"
+    print(f"[ok] boundary rumble {s.gamepad.rumble[1]:.2f} at box face, lightbar red")
+
     # right stick down -> z decreases (0.2 m/s with accel ramp + EE lag);
     # let the EE settle from the previous segment before measuring
     st, _ = run_ticks(s, idle(hz))
@@ -82,6 +87,7 @@ def main():
 
     # stop + save (Create again)
     st, _ = run_ticks(s, [GamepadState(pressed=["create"])])
+    assert s.gamepad.lightbar == (0, 0, 255), "lightbar should return to blue after save"
     files = list(pathlib.Path(tmp).glob("episode_*.hdf5"))
     assert len(files) == 1, f"expected 1 episode file, got {files}"
     import h5py
@@ -153,6 +159,27 @@ def main():
     st, tg = run_ticks(s, [GamepadState(pressed=["square"])] + idle(2 * hz))
     assert tilt_of(s, tg.quat) < 2 and s.tilt == {"ud": 0.0, "lr": 0.0} and s.yaw == 0.0
     print("[ok] Square resets orientation")
+
+    # --- feedback signal unit checks -------------------------------------------
+    from dsfranka.common.types import EETarget, RobotState
+    fb = s.feedback
+    q = np.zeros(7)
+    mk_state = lambda width: RobotState(q=q, dq=np.zeros(7), ee_pos=np.zeros(3),
+                                        ee_quat=np.array([1.0, 0, 0, 0]),
+                                        gripper_width=width, t=0.0)
+    # anti-windup saturated (pressing hard) -> strong low-freq rumble
+    tg_blocked = EETarget(pos=np.zeros(3), quat=np.array([1.0, 0, 0, 0]),
+                          gripper=1.0, q_ref=q + fb.cmd_lag_limit)
+    assert fb.blocked_intensity(mk_state(0.08), tg_blocked) > 0.8
+    # normal trailing (small gap) -> silent
+    tg_ok = EETarget(pos=np.zeros(3), quat=np.array([1.0, 0, 0, 0]),
+                     gripper=1.0, q_ref=q + 0.02)
+    assert fb.blocked_intensity(mk_state(0.08), tg_ok) == 0.0
+    # gripper commanded shut but width held open by an object -> R2 resistance
+    tg_grasp = EETarget(pos=np.zeros(3), quat=np.array([1.0, 0, 0, 0]), gripper=0.0)
+    assert fb.grasp_resistance(mk_state(0.05), tg_grasp) == fb.grasp_force
+    assert fb.grasp_resistance(mk_state(0.005), tg_grasp) == 0.0
+    print("[ok] blocked-rumble and grasp-trigger signals behave")
 
     print("\nALL TESTS PASSED")
 

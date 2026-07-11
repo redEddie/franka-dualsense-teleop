@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from dsfranka.common.config import load_config
 from dsfranka.data.recorder import EpisodeRecorder
-from dsfranka.input.dualsense_evdev import DualSenseEvdev
+from dsfranka.input.factory import make_gamepad
 from dsfranka.real.franka_client import FrankaArm
 from dsfranka.teleop.session import TeleopSession
 
@@ -29,9 +29,7 @@ def main():
 
     cfg = load_config(args.config)
     arm = FrankaArm(cfg, bridge_host=args.bridge_host)
-    g = cfg["gamepad"]
-    pad = DualSenseEvdev(deadzone=g["deadzone"],
-                         invert_ly=g["invert_ly"], invert_ry=g["invert_ry"])
+    pad = make_gamepad(cfg)
     rec = EpisodeRecorder(ROOT / cfg["recorder"]["out_dir"])
 
     print("Teleop started. PS button quits.")

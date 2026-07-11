@@ -21,10 +21,20 @@ accel:                   # target-side acceleration limits -> smooth velocity ra
   yaw: 4.0               # rad/s^2
 
 gamepad:
+  driver: pydualsense    # pydualsense (haptics/IMU, needs hidraw access) | evdev (input only)
   deadzone: 0.08
   # sign convention: +lx -> +y_world, +ly(up) -> +x_world (tune to taste)
   invert_ly: true
   invert_ry: true
+
+feedback:                # haptics (pydualsense driver only; no-op otherwise)
+  enabled: true
+  boundary_margin: 0.05  # [m] start buzzing this far from a workspace face (high-freq motor)
+  boundary_max: 0.6      # 0..1 intensity at the face
+  blocked_deadband: 0.25 # |q_ref-q|/cmd_lag_limit ratio below which no rumble (normal trailing)
+  blocked_max: 0.9       # 0..1 low-freq intensity when anti-windup saturates (pressing hard)
+  grasp_gap: 0.012       # [m] measured minus commanded gripper width that means "object grasped"
+  grasp_force: 0.7       # 0..1 R2 adaptive-trigger resistance while grasping
 
 workspace:               # target-pose clamp box, base frame [m]
   x: [0.20, 0.70]

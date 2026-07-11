@@ -32,11 +32,8 @@ def main():
     if args.mock:
         pad = MockGamepad()
     else:
-        from dsfranka.input.dualsense_evdev import DualSenseEvdev
-        g = cfg["gamepad"]
-        pad = DualSenseEvdev(deadzone=g["deadzone"],
-                             invert_ly=g["invert_ly"], invert_ry=g["invert_ry"])
-        print("DualSense connected.")
+        from dsfranka.input.factory import make_gamepad
+        pad = make_gamepad(cfg)
 
     rec = EpisodeRecorder(ROOT / cfg["recorder"]["out_dir"])
     session = TeleopSession(cfg, arm, pad, rec)

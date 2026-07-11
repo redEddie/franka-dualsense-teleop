@@ -39,6 +39,7 @@ from ..common.rate import Rate
 from ..common.types import EETarget
 from ..data.recorder import EpisodeRecorder
 from ..input.gamepad import Gamepad, GamepadState
+from .feedback import FeedbackController
 
 AUTO_CANCEL_STICK = 0.5   # stick deflection that cancels an auto-move
 AUTO_DONE_POS = 2e-3      # [m]
@@ -128,6 +129,8 @@ class TeleopSession:
         # auto-move goal: (pos|None, quat|None)
         self._auto: tuple[np.ndarray | None, np.ndarray | None] | None = None
         self.quit = False
+
+        self.feedback = FeedbackController(cfg)
 
     # -- orientation composition ---------------------------------------
     def _ori_goal(self) -> np.ndarray:
@@ -310,6 +313,8 @@ class TeleopSession:
         target = EETarget(pos=self.pos.copy(), quat=self.quat.copy(), gripper=self.gripper)
         state = self.arm.apply(target, self.dt)
         self.recorder.add(state, target)
+        self.feedback.update(self.gamepad, self.pos, state, target,
+                             recording=self.recorder.recording)
         return state, target
 
     def run(self, max_ticks: int | None = None, on_tick=None):
