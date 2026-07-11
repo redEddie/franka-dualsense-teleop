@@ -10,8 +10,8 @@ control:
 
 speed:
   xy: 0.25               # m/s at full left-stick deflection
-  z: 0.20                # m/s at full right-stick deflection (z height)
-  yaw: 1.0               # rad/s for L1/R1 yaw
+  z: 0.20                # m/s while holding L1 (down) / R1 (up)
+  yaw: 1.0               # rad/s at full right-stick (left/right) deflection
   gripper: 0.20          # m/s equivalent width rate at full trigger (full stroke ~0.4 s)
   auto_xyz: 0.50         # m/s cruise speed for machine-generated moves (homing/descend)
   auto_rot: 1.8          # rad/s for machine-generated rotations (tilt/orientation reset)

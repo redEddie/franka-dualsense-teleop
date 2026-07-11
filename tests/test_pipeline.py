@@ -72,13 +72,20 @@ def main():
     assert s.gamepad.lightbar[0] == 255, f"lightbar should be red while recording: {s.gamepad.lightbar}"
     print(f"[ok] boundary rumble {s.gamepad.rumble[1]:.2f} at box face, lightbar red")
 
-    # right stick down -> z decreases (0.2 m/s with accel ramp + EE lag);
+    # hold L1 -> z decreases (0.2 m/s with accel ramp + EE lag);
     # let the EE settle from the previous segment before measuring
     st, _ = run_ticks(s, idle(hz))
     z0 = st.ee_pos[2]
-    st, _ = run_ticks(s, [GamepadState(ry=-1.0) for _ in range(hz)])
-    assert st.ee_pos[2] < z0 - 0.08, f"right stick z motion failed: {st.ee_pos[2]:.3f} (z0={z0:.3f})"
-    print(f"[ok] right stick lowered EE by {z0 - st.ee_pos[2]:.3f} m")
+    st, _ = run_ticks(s, hold("l1", hz))
+    assert st.ee_pos[2] < z0 - 0.08, f"L1 z motion failed: {st.ee_pos[2]:.3f} (z0={z0:.3f})"
+    print(f"[ok] L1 lowered EE by {z0 - st.ee_pos[2]:.3f} m")
+
+    # right stick x -> yaw rotates the EE about world z (position stays)
+    p0 = st.ee_pos.copy()
+    st, tg = run_ticks(s, [GamepadState(rx=1.0) for _ in range(hz)])
+    assert abs(s.yaw) > 0.5, f"yaw did not accumulate: {s.yaw:.2f}"
+    assert np.linalg.norm(st.ee_pos[:2] - p0[:2]) < 0.03, "yaw should not translate the EE"
+    print(f"[ok] right stick yawed {np.rad2deg(s.yaw):+.0f} deg in place")
 
     # gripper close with R2
     st, tg = run_ticks(s, [GamepadState(r2=1.0) for _ in range(hz)])

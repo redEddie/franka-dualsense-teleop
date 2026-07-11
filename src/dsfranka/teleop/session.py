@@ -6,8 +6,8 @@ Backend-agnostic — drives anything exposing the ArmBackend protocol
 DualSense mapping
 -----------------
 left stick      x-y translation (base frame)
-right stick     z height, continuous (up/down)
-L1 / R1         yaw + / -
+right stick     left/right = yaw (push right -> clockwise); up/down unused
+L1 / R1         z down / up (hold; combines with left stick for descend-and-move)
 d-pad           select which tilt component to edit, and in which direction
                 (up/down -> ud component, left/right -> lr component);
                 selection alone never moves the robot and never resets state
@@ -238,19 +238,20 @@ class TeleopSession:
         return current + np.clip(desired - current, -accel * self.dt, accel * self.dt)
 
     def _integrate_manual(self, gp: GamepadState):
+        vz = 0.0
+        if gp.is_held("r1"):
+            vz += self.speed["z"]
+        if gp.is_held("l1"):
+            vz -= self.speed["z"]
         v_des = np.array([
             gp.ly * self.speed["xy"],            # stick up -> +x (away from base)
             -gp.lx * self.speed["xy"],           # stick left -> +y
-            gp.ry * self.speed["z"],             # right stick up -> +z
+            vz,                                  # L1 down / R1 up
         ])
         self._v = self._slew(self._v, v_des, self.acc_xyz)
         self.pos = np.clip(self.pos + self._v * self.dt, self.ws_lo, self.ws_hi)
 
-        yaw_des = 0.0
-        if gp.is_held("l1"):
-            yaw_des += self.speed["yaw"]
-        if gp.is_held("r1"):
-            yaw_des -= self.speed["yaw"]
+        yaw_des = -gp.rx * self.speed["yaw"]     # right stick right -> clockwise
         self._yaw_v = float(self._slew(self._yaw_v, yaw_des, self.acc_yaw))
         if abs(self._yaw_v) > 1e-9:
             self.yaw += self._yaw_v * self.dt
