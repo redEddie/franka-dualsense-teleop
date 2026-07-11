@@ -5,9 +5,9 @@ Backend-agnostic — drives anything exposing the ArmBackend protocol
 
 DualSense mapping
 -----------------
-left stick      x-y translation (base frame)
+left stick      x-y translation (mirrored when operator_position: front)
 right stick     left/right = yaw (push right -> clockwise); up/down unused
-L1 / R1         z down / up (hold; combines with left stick for descend-and-move)
+L1 / R1         z up / down (hold; combines with left stick for descend-and-move)
 d-pad           select which tilt component to edit, and in which direction
                 (up/down -> ud component, left/right -> lr component);
                 selection alone never moves the robot and never resets state
@@ -83,6 +83,8 @@ class TeleopSession:
         self.gamepad = gamepad
         self.recorder = recorder or EpisodeRecorder(cfg["recorder"]["out_dir"])
         self.dt = 1.0 / cfg["control"]["rate_hz"]
+        # front = operator faces the robot: mirror stick xy and tilt directions
+        self.mirror = cfg["control"].get("operator_position", "front") == "front"
         self.speed = cfg["speed"]
         accel = cfg.get("accel", {})
         self.acc_xyz = float(accel.get("xyz", 1.0))
@@ -103,6 +105,8 @@ class TeleopSession:
         axes = {**DEFAULT_TILT_AXES, **tilt.get("axes", {})}
         self.tilt_axes = {k: np.asarray(v, dtype=float) / np.linalg.norm(v)
                           for k, v in axes.items()}
+        if self.mirror:
+            self.tilt_axes = {k: -v for k, v in self.tilt_axes.items()}
         up_sign = -1.0 if tilt.get("invert_ud", False) else 1.0
         left_sign = -1.0 if tilt.get("invert_lr", False) else 1.0
         self.dpad_map = {          # d-pad button -> (component, step direction)
@@ -239,14 +243,15 @@ class TeleopSession:
 
     def _integrate_manual(self, gp: GamepadState):
         vz = 0.0
-        if gp.is_held("r1"):
-            vz += self.speed["z"]
         if gp.is_held("l1"):
+            vz += self.speed["z"]
+        if gp.is_held("r1"):
             vz -= self.speed["z"]
+        xy_sign = -1.0 if self.mirror else 1.0
         v_des = np.array([
-            gp.ly * self.speed["xy"],            # stick up -> +x (away from base)
-            -gp.lx * self.speed["xy"],           # stick left -> +y
-            vz,                                  # L1 down / R1 up
+            xy_sign * gp.ly * self.speed["xy"],   # stick up: -x (front) / +x (behind)
+            xy_sign * -gp.lx * self.speed["xy"],  # stick left: -y (front) / +y (behind)
+            vz,                                   # L1 up / R1 down
         ])
         self._v = self._slew(self._v, v_des, self.acc_xyz)
         self.pos = np.clip(self.pos + self._v * self.dt, self.ws_lo, self.ws_hi)

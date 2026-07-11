@@ -60,25 +60,26 @@ def main():
     print(f"[ok] home tracking err={err0*1000:.1f} mm")
 
     # --- record (Create) while translating with left stick ---------------
+    # operator_position: front (default) mirrors xy: stick up -> -x,
+    # driving the target toward the workspace x-lower face (0.20)
     st, _ = run_ticks(s, [GamepadState(pressed=["create"])] +
-                         [GamepadState(ly=1.0) for _ in range(hz)])
-    # home x=0.554, workspace x max 0.70 -> at most ~0.145 m of travel
-    moved_x = st.ee_pos[0] - s.home_pos[0]
-    assert moved_x > 0.12, f"stick +x motion too small: {moved_x:.3f} m"
-    print(f"[ok] left stick moved EE +{moved_x:.3f} m in x while recording")
+                         [GamepadState(ly=1.0) for _ in range(2 * hz)])
+    moved_x = s.home_pos[0] - st.ee_pos[0]
+    assert moved_x > 0.25, f"mirrored stick -x motion too small: {moved_x:.3f} m"
+    print(f"[ok] left stick (mirrored) moved EE -{moved_x:.3f} m in x while recording")
 
     # feedback while pinned against the workspace x face + recording:
     assert s.gamepad.rumble[1] > 0.3, f"boundary rumble missing: {s.gamepad.rumble}"
     assert s.gamepad.lightbar[0] == 255, f"lightbar should be red while recording: {s.gamepad.lightbar}"
     print(f"[ok] boundary rumble {s.gamepad.rumble[1]:.2f} at box face, lightbar red")
 
-    # hold L1 -> z decreases (0.2 m/s with accel ramp + EE lag);
+    # hold R1 -> z decreases (0.2 m/s with accel ramp + EE lag);
     # let the EE settle from the previous segment before measuring
     st, _ = run_ticks(s, idle(hz))
     z0 = st.ee_pos[2]
-    st, _ = run_ticks(s, hold("l1", hz))
-    assert st.ee_pos[2] < z0 - 0.08, f"L1 z motion failed: {st.ee_pos[2]:.3f} (z0={z0:.3f})"
-    print(f"[ok] L1 lowered EE by {z0 - st.ee_pos[2]:.3f} m")
+    st, _ = run_ticks(s, hold("r1", hz))
+    assert st.ee_pos[2] < z0 - 0.08, f"R1 z motion failed: {st.ee_pos[2]:.3f} (z0={z0:.3f})"
+    print(f"[ok] R1 lowered EE by {z0 - st.ee_pos[2]:.3f} m")
 
     # right stick x -> yaw rotates the EE about world z (position stays)
     p0 = st.ee_pos.copy()
@@ -110,16 +111,19 @@ def main():
     assert len(list(pathlib.Path(tmp).glob("episode_*.hdf5"))) == 1
     print("[ok] Options discards, leaves no file")
 
-    # --- auto descend (R3) --------------------------------------------------
+    # --- homing (Triangle) ---------------------------------------------------
+    st, _ = run_ticks(s, [GamepadState(pressed=["triangle"])] + idle(4 * hz))
+    assert np.linalg.norm(st.ee_pos - s.home_pos) < 0.02
+    print("[ok] homing")
+
+    # --- auto descend (R3) from home xy, where z=0.12 is reachable ------------
     st, _ = run_ticks(s, [GamepadState(pressed=["r3"])] + idle(3 * hz))
     assert abs(st.ee_pos[2] - cfg["features"]["descend_z"]) < 0.02, \
         f"descend failed, z={st.ee_pos[2]:.3f}"
     print(f"[ok] R3 auto-descend reached z={st.ee_pos[2]:.3f}")
 
-    # --- homing (Triangle) ---------------------------------------------------
+    # return home before the tilt section
     st, _ = run_ticks(s, [GamepadState(pressed=["triangle"])] + idle(4 * hz))
-    assert np.linalg.norm(st.ee_pos - s.home_pos) < 0.02
-    print("[ok] homing")
 
     # --- tilt: tap Cross -> 30, tap again -> 60 (ud component) ----------------
     st, tg = run_ticks(s, tap("cross") + idle(2 * hz))

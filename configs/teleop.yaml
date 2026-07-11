@@ -7,6 +7,9 @@ robot: fr3
 control:
   rate_hz: 50            # teleop tick rate (target integration + IK)
   physics_substeps: auto # sim only: derived from model timestep
+  # front  = operator faces the robot (mirror: stick xy and tilt directions flipped)
+  # behind = operator stands behind the robot (robot-frame directions)
+  operator_position: front
 
 speed:
   xy: 0.25               # m/s at full left-stick deflection
