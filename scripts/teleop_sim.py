@@ -41,8 +41,14 @@ def main():
     if args.headless:
         session.run(max_ticks=args.ticks)
     else:
+        import mujoco
         import mujoco.viewer
         with mujoco.viewer.launch_passive(arm.m, arm.d) as viewer:
+            # launch_passive starts with a bare MjvCamera and ignores the
+            # model's visual/global azimuth/elevation — apply them explicitly
+            mujoco.mjv_defaultFreeCamera(arm.m, viewer.cam)
+            viewer.sync()
+
             def on_tick(state, target):
                 if not viewer.is_running():
                     return False
