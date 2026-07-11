@@ -57,7 +57,7 @@ tilt:                    # Cross = +step / hold-increase, Circle = -step / hold-
 
 home:
   # matches the "home" keyframe of the menagerie panda model
-  qpos: [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853]
+  qpos: [0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, 0.7853]
 
 ik:
   pos_gain: 5.0          # target-error -> velocity gain
