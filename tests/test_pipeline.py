@@ -203,11 +203,19 @@ def main():
     tg_ok = EETarget(pos=np.zeros(3), quat=np.array([1.0, 0, 0, 0]),
                      gripper=1.0, q_ref=q + 0.02)
     assert fb.blocked_intensity(mk_state(0.08), tg_ok) == 0.0
-    # gripper commanded shut but width held open by an object -> R2 resistance
-    tg_grasp = EETarget(pos=np.zeros(3), quat=np.array([1.0, 0, 0, 0]), gripper=0.0)
-    assert fb.grasp_resistance(mk_state(0.05), tg_grasp) == fb.grasp_force
-    assert fb.grasp_resistance(mk_state(0.005), tg_grasp) == 0.0
-    print("[ok] blocked-rumble and grasp-trigger signals behave")
+    print("[ok] blocked-rumble signal behaves")
+
+    # --- gripper: binary R2 hysteresis + buzz/detent haptic --------------------
+    run_ticks(s, [GamepadState(r2=0.7)])          # below close_at (0.85), was open -> stays open
+    assert s.gripper == 1.0, f"R2 below close_at should stay open: {s.gripper}"
+    run_ticks(s, [GamepadState(r2=0.9)])          # past close_at -> closed
+    assert s.gripper == 0.0, "R2 past close_at should close"
+    run_ticks(s, [GamepadState(r2=0.7)])          # in hysteresis band -> stays closed
+    assert s.gripper == 0.0, "hysteresis band should stay closed"
+    assert s.gamepad.trigger["R2"] > 0.0, "R2 buzz/wall should be active near the threshold"
+    run_ticks(s, [GamepadState(r2=0.4)])          # below open_at -> open
+    assert s.gripper == 1.0, "R2 below open_at should open"
+    print("[ok] gripper binary hysteresis + R2 buzz/detent")
 
     print("\nALL TESTS PASSED")
 

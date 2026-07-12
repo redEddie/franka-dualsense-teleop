@@ -119,6 +119,15 @@ class TeleopSession:
         self.home_pos, self.home_quat = arm.home_pose()
         self.pos = self.home_pos.copy()
         self.quat = self.home_quat.copy()
+        g = cfg.get("gripper", {})
+        self.grip_close_at = float(g.get("close_at", 0.85))  # R2 press fraction to CLOSE (deep)
+        self.grip_open_at = float(g.get("open_at", 0.55))    # R2 release fraction to OPEN
+        self.detent_force = float(g.get("detent_force", 0.9))
+        self.detent_band = float(g.get("detent_band", 0.10)) # final "wall" zone before the threshold
+        self.buzz_amp = float(g.get("buzz_amp", 0.4))        # trigger buzz amplitude while pressing in
+        self.buzz_span = float(g.get("buzz_span", 0.35))     # R2 fraction the buzz ramps over
+        self._grip_closed = False   # start open
+        self._r2_phase = 0
         self.gripper = 1.0
 
         # orientation bookkeeping (see module docstring)
@@ -267,8 +276,30 @@ class TeleopSession:
             self.quat = _rotate_quat_world(
                 self.quat, np.array([0.0, 0.0, 1.0]) * self._yaw_v * self.dt)
 
-        g_rate = (gp.l2 - gp.r2) * self.speed["gripper"] / 0.08  # width-rate -> [0,1]-rate
-        self.gripper = float(np.clip(self.gripper + g_rate * self.dt, 0.0, 1.0))
+        # R2 -> binary open/close with hysteresis (deep close point; the Franka Hand
+        # can't be servoed to a continuous width, ~0.8 s per command). Press past
+        # close_at to close, release below open_at to reopen.
+        if not self._grip_closed and gp.r2 > self.grip_close_at:
+            self._grip_closed = True
+        elif self._grip_closed and gp.r2 < self.grip_open_at:
+            self._grip_closed = False
+        self.gripper = 0.0 if self._grip_closed else 1.0
+        self.gamepad.set_trigger("R2", self._r2_haptic(gp.r2))
+
+    def _r2_haptic(self, r2: float) -> float:
+        """R2 trigger feel toward the gripper toggle: a buzz that ramps up as you
+        press in, then a solid resistance wall in the final `detent_band` that
+        vanishes the instant the state flips -> a click you push through. Symmetric
+        on release. Signals the deep close point and prevents accidental toggles."""
+        # R2 fraction still to travel before the active threshold (>= 0 until it flips)
+        dd = (r2 - self.grip_open_at) if self._grip_closed else (self.grip_close_at - r2)
+        if dd < 0.0 or dd > self.detent_band + self.buzz_span:
+            return 0.0
+        if dd <= self.detent_band:
+            return self.detent_force                        # solid wall (steady) -> click
+        frac = 1.0 - (dd - self.detent_band) / self.buzz_span   # 0..1 as the wall nears
+        self._r2_phase ^= 1                                 # alternate -> the trigger buzzes
+        return self.buzz_amp * frac * (1.0 if self._r2_phase else 0.3)
 
     def _integrate_auto(self):
         goal_pos, goal_quat = self._auto

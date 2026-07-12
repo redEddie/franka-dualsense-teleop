@@ -8,9 +8,10 @@ low-freq motor    blocked/pressing feedback: the IK anti-windup gap
                   |q_ref - q| is a direct measure of how hard the position
                   servo is pushing (works identically in sim and on the real
                   robot; upgraded to O_F_ext_hat_K with protocol v2)
-R2 trigger        grasp resistance: when the measured gripper width stays
-                  above the commanded width, an object is in the way
 lightbar          red = recording, blue = idle
+
+(The R2 trigger is driven by the session's gripper logic — a haptic detent at
+the open/close hysteresis point — not here.)
 
 All outputs go through the Gamepad feedback API, which is a no-op for
 drivers without haptics (evdev, Mock records for tests).
@@ -22,8 +23,6 @@ import numpy as np
 from ..common.types import EETarget, RobotState
 from ..input.gamepad import Gamepad
 
-GRIPPER_MAX_W = 0.08
-
 
 class FeedbackController:
     def __init__(self, cfg: dict):
@@ -33,8 +32,6 @@ class FeedbackController:
         self.boundary_max = float(fb.get("boundary_max", 0.6))
         self.blocked_deadband = float(fb.get("blocked_deadband", 0.25))
         self.blocked_max = float(fb.get("blocked_max", 0.9))
-        self.grasp_gap = float(fb.get("grasp_gap", 0.012))
-        self.grasp_force = float(fb.get("grasp_force", 0.7))
         self.cmd_lag_limit = float(cfg.get("ik", {}).get("cmd_lag_limit", 0.15))
         ws = cfg["workspace"]
         self.ws_lo = np.array([ws["x"][0], ws["y"][0], ws["z"][0]])
@@ -59,11 +56,6 @@ class FeedbackController:
         return min(1.0, (ratio - self.blocked_deadband) / (1.0 - self.blocked_deadband)) \
             * self.blocked_max
 
-    def grasp_resistance(self, state: RobotState, target: EETarget) -> float:
-        """R2 stiffens when the gripper is blocked by an object."""
-        commanded_w = target.gripper * GRIPPER_MAX_W
-        return self.grasp_force if state.gripper_width - commanded_w > self.grasp_gap else 0.0
-
     # -- per-tick update -----------------------------------------------------
     def update(self, pad: Gamepad, pos: np.ndarray, state: RobotState,
                target: EETarget, recording: bool) -> None:
@@ -71,5 +63,4 @@ class FeedbackController:
             return
         pad.set_rumble(self.blocked_intensity(state, target),
                        self.boundary_intensity(pos))
-        pad.set_trigger("R2", self.grasp_resistance(state, target))
         pad.set_lightbar(*((255, 20, 20) if recording else (0, 0, 255)))

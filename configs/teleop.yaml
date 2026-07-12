@@ -15,7 +15,6 @@ speed:
   xy: 0.25               # m/s at full left-stick deflection
   z: 0.20                # m/s while holding L1 (down) / R1 (up)
   yaw: 1.0               # rad/s at full right-stick (left/right) deflection
-  gripper: 0.20          # m/s equivalent width rate at full trigger (full stroke ~0.4 s)
   auto_xyz: 0.50         # m/s cruise speed for machine-generated moves (homing/descend)
   auto_rot: 1.8          # rad/s for machine-generated rotations (tilt/orientation reset)
 
@@ -30,14 +29,21 @@ gamepad:
   invert_ly: true
   invert_ry: true
 
+gripper:                 # binary open/close — the Franka Hand can't be servoed to a
+                         # continuous width (measured ~0.8 s/command, ~1.2 Hz max)
+  close_at: 0.85         # R2 press fraction (0..1) that switches to CLOSED (deep, deliberate)
+  open_at: 0.55          # R2 release fraction that switches back to OPEN (gap = hysteresis)
+  buzz_amp: 0.4          # 0..1 R2 trigger buzz amplitude while pressing toward the threshold
+  buzz_span: 0.35        # R2 fraction the buzz ramps over before the wall
+  detent_force: 0.9      # 0..1 R2 resistance wall in the final band -> the "click" at the toggle
+  detent_band: 0.10      # R2 fraction of that final wall zone before the threshold
+
 feedback:                # haptics (pydualsense driver only; no-op otherwise)
   enabled: true
   boundary_margin: 0.05  # [m] start buzzing this far from a workspace face (high-freq motor)
   boundary_max: 0.6      # 0..1 intensity at the face
   blocked_deadband: 0.25 # |q_ref-q|/cmd_lag_limit ratio below which no rumble (normal trailing)
   blocked_max: 0.9       # 0..1 low-freq intensity when anti-windup saturates (pressing hard)
-  grasp_gap: 0.012       # [m] measured minus commanded gripper width that means "object grasped"
-  grasp_force: 0.7       # 0..1 R2 adaptive-trigger resistance while grasping
 
 workspace:               # target-pose clamp box, base frame [m]
   x: [0.20, 0.70]
