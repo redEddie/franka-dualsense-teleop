@@ -97,8 +97,34 @@ python tests/test_pipeline.py     # 통합 테스트
 | 4 | 정책 배포 | 정책 액션(EE pose)을 Stage 3 제어기가 추종 | — | 최종 |
 
 Stage 3에서 기록된 **action−obs 오차가 곧 렌치(N/Nm)**가 되고 K_x로 접촉 강성을 직접
-정의한다 (게인 출발점: LIBERO/robosuite OSC kp≈150, ζ=1). 접촉 태스크(누르기/끌기)
-데이터는 Stage 3 전환 후 수집해야 배포 시 동역학이 일치한다.
+정의한다. 접촉 태스크(누르기/끌기) 데이터는 Stage 3 전환 후 수집해야 배포 시
+동역학이 일치한다.
+
+### Stage 3 구현 레퍼런스: robosuite OSC (LIBERO가 사용)
+
+[robosuite `controllers/parts/arm/osc.py`](https://github.com/ARISE-Initiative/robosuite/blob/master/robosuite/controllers/parts/arm/osc.py)
+— 소스에서 검증한 핵심 메커니즘:
+
+```
+goal = 측정된 현재 EE pose + clip(delta)         # 목표를 관측에 재앵커링 ('achieved' 모드)
+F    = kp·(goal − x_obs) + kd·(ẋ_d − ẋ)         # 오차가 곧 힘 (도달/정지 로직 없음)
+τ    = Jᵀ·(Λ·F) + 중력보상 + 널스페이스 토크      # Λ = (J·M⁻¹·Jᵀ)⁻¹ 동역학 디커플링
+kd   = 2·√kp·ζ                                   # ζ=1 임계감쇠 → 튜닝 자유도는 kp 하나
+```
+
+가져올 포인트:
+
+1. **오차 클램프 = 힘 상한**: 델타가 스텝당 최대 5 cm로 클립되고 목표가 매번 관측
+   pose에 재앵커링되므로 스프링 최대 신장 = 5 cm → 최대 힘 ≈ kp×0.05 (kp=150이면
+   ~7.5 N). 와인드업 방지가 액션 설계에 내장 — 우리 브리지에서는
+   `clamp(x_action ⊖ x_obs)` 한계값이 곧 최대 접촉력(N)이 되도록 설계한다.
+2. **임계감쇠 규칙** kd = 2√kp·ζ (ζ=1) — 게인 출발점 kp≈150.
+3. **분리 원칙**: 중력보상은 스프링 밖에서 (Franka 토크 모드는 자동), 코리올리스는
+   `franka::Model`, 여유 자유도는 널스페이스 토크로 홈 자세 유지.
+   libfranka의 `cartesian_impedance_control` 예제가 동일 구조.
+4. **위치와 힘이 한 법칙**: 자유 공간에서는 추종(트레일링 = 스프링 신장), 접촉 시
+   같은 오차가 누르는 힘이 된다. LIBERO가 접촉 시연을 수집할 수 있는 이유이며,
+   시연·배포가 같은 오차→힘 경로를 타는 것이 데이터 일관성의 핵심.
 
 **조작감(부드러움) 필터** — LIBERO OSC 임피던스의 역할을 위치 파이프라인에서 재현:
 
@@ -191,4 +217,5 @@ data/episodes/           수집된 에피소드 (episode_NNNN.hdf5)
 - 로봇 모델: [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie)의
   `franka_fr3` / `franka_emika_panda` (각 디렉토리의 LICENSE 참고). `fr3_hand.xml`은
   두 모델을 결합한 파생본이며 TCP site가 추가되어 있다.
-- 텔레옵 데이터 수집 설계 레퍼런스: [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) / robosuite
+- 텔레옵 데이터 수집 설계 레퍼런스: [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO) /
+  [robosuite](https://github.com/ARISE-Initiative/robosuite) (OSC_POSE 컨트롤러 — Stage 3 구현 레퍼런스)
