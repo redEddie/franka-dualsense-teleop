@@ -13,12 +13,14 @@
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <array>
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <future>
 #include <iostream>
 #include <mutex>
 #include <thread>
@@ -38,8 +40,17 @@ namespace {
 constexpr double kSmoothing = 0.995;      // per-ms exponential filter on targets
 constexpr double kStartTolerance = 0.05;  // rad: first target must be near current q
 
+// gripper (Franka Hand) — blocking commands run async so the loop can preempt
+constexpr double kGripMaxWidth = 0.08;    // m, fully open
+constexpr double kGripSpeed = 0.1;        // m/s (Franka Hand max)
+constexpr double kGripDeadband = 0.02;    // min target change [0..1] to reissue a command
+constexpr double kGraspThresh = 0.06;     // target below this -> grasp (apply force) vs move
+constexpr double kGraspForce = 40.0;      // N holding force when grasping
+
 // per-joint hard clamps derived from the compile-time robot selection
 double max_dq_per_tick(int i) { return dsfranka::kVelFraction * dsfranka::kDqMax[i] * 1e-3; }
+// max change in per-tick position delta = accel * dt^2 (dt = 1 ms)
+double max_ddq_per_tick(int i) { return dsfranka::kAccFraction * dsfranka::kDdqMax[i] * 1e-6; }
 double clamp_q(int i, double q) {
   const double lo = dsfranka::kQLower[i] + dsfranka::kQMargin;
   const double hi = dsfranka::kQUpper[i] - dsfranka::kQMargin;
@@ -81,27 +92,44 @@ void state_tx_loop(int sock, sockaddr_in client) {
 }
 
 void gripper_loop(franka::Gripper* gripper) {
-  double last_cmd = -1.0;
+  // Franka Hand grasp()/move() are blocking (~up to 0.8 s per stroke). Running
+  // them synchronously made the gripper lag — intermediate trigger values were
+  // dropped while a stale command finished. Instead run each command async and
+  // preempt it with stop() as soon as a newer target arrives, so the hand always
+  // chases the latest R2 position.
+  double last_issued = -1.0;
+  std::future<void> motion;
+  auto motion_done = [&]() {
+    return !motion.valid() ||
+           motion.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready;
+  };
   while (g_running) {
     double target;
     {
       std::lock_guard<std::mutex> lk(g_mtx);
       target = g_target_gripper;
     }
-    if (g_have_cmd && std::abs(target - last_cmd) > 0.05) {
-      last_cmd = target;
-      try {
-        if (target < 0.5) {
-          gripper->grasp(0.0, 0.1, 40.0, 0.08, 0.08);  // close & grasp
-        } else {
-          gripper->move(0.08 * target, 0.1);
-        }
-      } catch (const franka::Exception& e) {
-        std::cerr << "[gripper] " << e.what() << std::endl;
+    if (g_have_cmd && std::abs(target - last_issued) > kGripDeadband) {
+      if (!motion_done()) {
+        gripper->stop();   // abort the in-flight grasp/move so we can reissue
+        motion.wait();
       }
+      last_issued = target;
+      motion = std::async(std::launch::async, [gripper, target]() {
+        try {
+          if (target < kGraspThresh) {
+            gripper->grasp(0.0, kGripSpeed, kGraspForce, 0.08, 0.08);  // close & hold
+          } else {
+            gripper->move(kGripMaxWidth * target, kGripSpeed);
+          }
+        } catch (const franka::Exception&) {
+          // benign: grasp closed on empty air, or the motion was preempted by stop()
+        }
+      });
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
+  if (motion.valid()) motion.wait();
 }
 
 void publish_state(const franka::RobotState& rs, double width, uint32_t seq) {
@@ -158,6 +186,9 @@ int main(int argc, char** argv) {
     perror("bind");
     return 1;
   }
+  // bounded recv so udp_rx_loop can observe g_running and be joined on shutdown
+  struct timeval rx_timeout{0, 100000};  // 100 ms
+  setsockopt(rx, SOL_SOCKET, SO_RCVTIMEO, &rx_timeout, sizeof(rx_timeout));
   int tx = socket(AF_INET, SOCK_DGRAM, 0);
   sockaddr_in client{};
   client.sin_family = AF_INET;
@@ -166,11 +197,16 @@ int main(int argc, char** argv) {
 
   try {
     franka::Robot robot(argv[1]);
+    // Collision thresholds. The acceleration-phase thresholds are set higher than
+    // the nominal ones because the external-force/torque estimate is noisier while
+    // joints accelerate — keeping them equal (and low) made fast teleop moves trip
+    // a spurious cartesian_reflex right at start. Raise these further for hard
+    // contact tasks, lower them for tighter safety. [torque Nm, force N/Nm]
     robot.setCollisionBehavior(
-        {{20, 20, 18, 18, 16, 14, 12}}, {{20, 20, 18, 18, 16, 14, 12}},
-        {{20, 20, 18, 18, 16, 14, 12}}, {{20, 20, 18, 18, 16, 14, 12}},
-        {{20, 20, 20, 25, 25, 25}}, {{20, 20, 20, 25, 25, 25}},
-        {{20, 20, 20, 25, 25, 25}}, {{20, 20, 20, 25, 25, 25}});
+        {{40, 40, 38, 38, 34, 32, 28}}, {{40, 40, 38, 38, 34, 32, 28}},  // torque, acceleration
+        {{30, 30, 28, 28, 26, 24, 22}}, {{30, 30, 28, 28, 26, 24, 22}},  // torque, nominal
+        {{50, 50, 50, 50, 50, 50}}, {{50, 50, 50, 50, 50, 50}},          // force, acceleration
+        {{35, 35, 35, 40, 40, 40}}, {{35, 35, 35, 40, 40, 40}});         // force, nominal
 
     franka::Gripper gripper(argv[1]);
     double gripper_width = 0.08;
@@ -178,6 +214,21 @@ int main(int argc, char** argv) {
     std::thread t_rx(udp_rx_loop, rx);
     std::thread t_tx(state_tx_loop, tx, client);
     std::thread t_grip(gripper_loop, &gripper);
+
+    // Join the workers on ANY exit from this scope (normal return or a control
+    // exception unwinding) BEFORE the gripper/sockets they reference die and before
+    // the std::thread destructors run — a joinable thread destructor calls
+    // std::terminate and would mask the real franka error. Declared last so it is
+    // destroyed first; the outer catch then reports e.what().
+    struct Joiner {
+      std::thread &a, &b, &c;
+      ~Joiner() {
+        g_running = false;
+        if (a.joinable()) a.join();
+        if (b.joinable()) b.join();
+        if (c.joinable()) c.join();
+      }
+    } joiner{t_rx, t_tx, t_grip};
 
     // publish state while waiting for the client to sync + send first command
     std::cout << "waiting for first command near current configuration..." << std::endl;
@@ -199,12 +250,19 @@ int main(int argc, char** argv) {
 
     std::cout << "starting 1 kHz joint position control" << std::endl;
     std::array<double, 7> q_cmd{};
+    std::array<double, 7> dq_cmd{};  // per-tick position delta (velocity·dt), for accel limiting
     bool first = true;
     robot.control([&](const franka::RobotState& rs,
                       franka::Duration /*period*/) -> franka::JointPositions {
       if (first) {
+        // start exactly at the current commanded configuration with zero velocity so
+        // the motion generator sees a continuous trajectory from rest (otherwise the
+        // first non-zero step is a velocity/acceleration discontinuity -> reflex)
         q_cmd = rs.q_d;
+        dq_cmd.fill(0.0);
         first = false;
+        publish_state(rs, gripper_width, seq++);
+        return franka::JointPositions(q_cmd);
       }
       std::array<double, 7> tgt;
       {
@@ -214,9 +272,18 @@ int main(int argc, char** argv) {
       for (int i = 0; i < 7; i++) {
         double next = kSmoothing * q_cmd[i] + (1.0 - kSmoothing) * clamp_q(i, tgt[i]);
         double step = next - q_cmd[i];
+        // velocity clamp (position delta per tick)
         const double dq_max = max_dq_per_tick(i);
         if (step > dq_max) step = dq_max;
         if (step < -dq_max) step = -dq_max;
+        // acceleration clamp: bound the change in per-tick delta so velocity ramps
+        // instead of stepping — prevents the velocity/acceleration discontinuity reflex
+        const double ddq_max = max_ddq_per_tick(i);
+        double dstep = step - dq_cmd[i];
+        if (dstep > ddq_max) dstep = ddq_max;
+        if (dstep < -ddq_max) dstep = -ddq_max;
+        step = dq_cmd[i] + dstep;
+        dq_cmd[i] = step;
         q_cmd[i] = clamp_q(i, q_cmd[i] + step);
       }
       publish_state(rs, gripper_width, seq++);

@@ -14,7 +14,9 @@ int main(int argc, char** argv) {
     std::cerr << "usage: " << argv[0] << " <robot-ip>" << std::endl;
     return 1;
   }
-  const std::array<double, 7> q_goal = {{0, 0, 0, -M_PI_2, 0, M_PI_2, -M_PI_4}};
+  // matches the teleop home (fr3_hand.xml keyframe / configs/teleop.yaml home.qpos):
+  // q7 = +M_PI_4, so the arm lands exactly where teleop_real seeds its target.
+  const std::array<double, 7> q_goal = {{0, 0, 0, -M_PI_2, 0, M_PI_2, M_PI_4}};
   const double duration = 5.0;  // seconds
 
   try {
