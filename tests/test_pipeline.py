@@ -36,6 +36,18 @@ def tap(name):
     return hold(name, 3) + [GamepadState()]
 
 
+def chord_tap(dpad, btn):
+    """Tap `btn` while holding `dpad` (release btn first so the d-pad is
+    still held at the moment the tap action fires)."""
+    return ([GamepadState(held={dpad: True, btn: True}) for _ in range(3)]
+            + [GamepadState(held={dpad: True})] + [GamepadState()])
+
+
+def chord_hold(dpad, btn, n):
+    return ([GamepadState(held={dpad: True, btn: True}) for _ in range(n)]
+            + [GamepadState(held={dpad: True})] + [GamepadState()])
+
+
 def tilt_of(session, quat):
     """Angle [deg] between quat and the session home orientation."""
     conj, dq = np.zeros(4), np.zeros(4)
@@ -125,44 +137,49 @@ def main():
     # return home before the tilt section
     st, _ = run_ticks(s, [GamepadState(pressed=["triangle"])] + idle(4 * hz))
 
-    # --- tilt: tap Cross -> 30, tap again -> 60 (ud component) ----------------
-    st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
+    # --- guard: Cross/Circle without a held d-pad do nothing -------------------
+    st, tg = run_ticks(s, tap("cross") + tap("circle") + idle(hz))
+    assert tilt_of(s, tg.quat) < 1, f"bare Cross/Circle must not tilt: {tilt_of(s, tg.quat):.1f}"
+    print("[ok] Cross/Circle without d-pad are ignored")
+
+    # --- tilt: d-pad + Cross chord -> 30, again -> 60 (ud component) ----------
+    st, tg = run_ticks(s, chord_tap("dpad_up", "cross") + idle(2 * hz))
     assert abs(tilt_of(s, tg.quat) - 30) < 2, f"tilt {tilt_of(s, tg.quat):.1f} != 30"
-    st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
+    st, tg = run_ticks(s, chord_tap("dpad_up", "cross") + idle(2 * hz))
     assert abs(tilt_of(s, tg.quat) - 60) < 2, f"tilt {tilt_of(s, tg.quat):.1f} != 60"
     assert abs(abs(s.tilt["ud"]) - 60) < 1e-6
-    print("[ok] Cross taps: 0 -> 30 -> 60 deg")
+    print("[ok] dpad_up+Cross taps: 0 -> 30 -> 60 deg")
 
-    # --- hold Cross: continuous creep past the grid ---------------------------
-    st, tg = run_ticks(s, hold("cross", int(1.0 * hz)) + [GamepadState()])
+    # --- hold the chord: continuous creep past the grid ------------------------
+    st, tg = run_ticks(s, chord_hold("dpad_up", "cross", int(1.0 * hz)))
     creep = tilt_of(s, tg.quat)
     # 1.0 s hold - 0.35 s threshold = 0.65 s at 40 deg/s ~= 26 deg on top of 60
     assert 70 < creep < 90, f"hold creep angle {creep:.1f} not in (70, 90)"
     assert abs(abs(s.tilt["ud"]) - creep) < 2, f"bookkeeping {s.tilt['ud']:.1f} vs {creep:.1f}"
-    print(f"[ok] Cross hold creep -> {creep:.1f} deg (ambiguous, off-grid)")
+    print(f"[ok] chord hold creep -> {creep:.1f} deg (ambiguous, off-grid)")
 
     # --- continuity: opposite d-pad direction edits the SAME value ------------
-    st, tg = run_ticks(s, [GamepadState(pressed=["dpad_down"])] + idle(hz))
-    assert abs(tilt_of(s, tg.quat) - creep) < 2, "d-pad selection must not move the robot"
-    st, tg = run_ticks(s, tap("cross") + idle(2 * hz))
+    st, tg = run_ticks(s, hold("dpad_down", hz))
+    assert abs(tilt_of(s, tg.quat) - creep) < 2, "d-pad hold alone must not move the robot"
+    st, tg = run_ticks(s, chord_tap("dpad_down", "cross") + idle(2 * hz))
     assert abs(tilt_of(s, tg.quat) - 60) < 2, \
         f"opposite-direction step from {creep:.1f} should snap to 60, got {tilt_of(s, tg.quat):.1f}"
-    print(f"[ok] dpad_down keeps value; Cross steps {creep:.1f} -> 60 (continuous)")
+    print(f"[ok] dpad_down keeps value; chord steps {creep:.1f} -> 60 (continuous)")
 
-    # --- Circle tap: toward 0 on the active component ---------------------------
-    st, tg = run_ticks(s, tap("circle") + idle(2 * hz))
+    # --- Circle chord: toward 0 on the held component ---------------------------
+    st, tg = run_ticks(s, chord_tap("dpad_up", "circle") + idle(2 * hz))
     assert abs(tilt_of(s, tg.quat) - 30) < 2, f"cancel step {tilt_of(s, tg.quat):.1f} != 30"
-    print("[ok] Circle tap 60 -> 30 (toward zero)")
+    print("[ok] dpad+Circle tap 60 -> 30 (toward zero)")
 
     # --- combined tilt: add lr on top of ud ------------------------------------
-    st, tg = run_ticks(s, [GamepadState(pressed=["dpad_left"])] + tap("cross") + idle(2 * hz))
+    st, tg = run_ticks(s, chord_tap("dpad_left", "cross") + idle(2 * hz))
     assert abs(abs(s.tilt["lr"]) - 30) < 1e-6 and abs(abs(s.tilt["ud"]) - 30) < 1e-6
     assert tilt_of(s, tg.quat) > 35, f"combined tilt too small: {tilt_of(s, tg.quat):.1f}"
     print(f"[ok] combined tilt ud=30 + lr=30 -> total {tilt_of(s, tg.quat):.1f} deg")
 
     # --- max cap on the ud component -------------------------------------------
-    st, tg = run_ticks(s, [GamepadState(pressed=["dpad_up"])] +
-                          tap("cross") + tap("cross") + tap("cross") + idle(2 * hz))
+    st, tg = run_ticks(s, chord_tap("dpad_up", "cross") + chord_tap("dpad_up", "cross")
+                          + chord_tap("dpad_up", "cross") + idle(2 * hz))
     assert abs(abs(s.tilt["ud"]) - 90) < 1e-6, f"ud should cap at 90, got {s.tilt['ud']}"
     print("[ok] ud capped at 90 deg")
 

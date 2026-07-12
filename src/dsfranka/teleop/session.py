@@ -8,13 +8,14 @@ DualSense mapping
 left stick      x-y translation (mirrored when operator_position: front)
 right stick     left/right = yaw (push right -> clockwise); up/down unused
 L1 / R1         z up / down (hold; combines with left stick for descend-and-move)
-d-pad           select which tilt component to edit, and in which direction
-                (up/down -> ud component, left/right -> lr component);
-                selection alone never moves the robot and never resets state
-Cross           tap: step the selected component 30 deg in the selected
-                direction FROM ITS CURRENT VALUE (snaps onto the grid);
+d-pad (hold)    selects which tilt component/direction Cross edits
+                (up/down -> ud component, left/right -> lr component).
+                Cross/Circle only act WHILE a d-pad direction is held —
+                without it they are ignored (guards accidental presses)
+Cross           tap (with d-pad held): step that component 30 deg in the
+                held direction FROM ITS CURRENT VALUE (snaps onto the grid);
                 hold: slow continuous change in that direction
-Circle          tap: step the selected component 30 deg toward 0 (snap);
+Circle          tap (with d-pad held): step that component 30 deg toward 0;
                 hold: slow continuous return to 0
 Square          orientation reset (yaw & both tilt components -> 0)
 Triangle        home (EE pose of the home configuration)
@@ -123,7 +124,6 @@ class TeleopSession:
         # orientation bookkeeping (see module docstring)
         self.yaw = 0.0                       # [rad]
         self.tilt = {"ud": 0.0, "lr": 0.0}   # signed [deg]
-        self.active_tilt = self.dpad_map["dpad_up"]
 
         # tap-vs-hold tracking for Cross/Circle (session time, not wall clock)
         self._t = 0.0
@@ -179,12 +179,6 @@ class TeleopSession:
             goal[2] = self.descend_z
             self._auto = (goal, None)
             print(f"[auto] descend to z={self.descend_z:.3f}")
-        elif name in self.dpad_map:
-            # selection only — nothing moves, current tilt values are kept
-            self.active_tilt = self.dpad_map[name]
-            comp, sgn = self.active_tilt
-            print(f"[tilt] editing {comp} ({'+' if sgn > 0 else '-'}), "
-                  f"now ud={self.tilt['ud']:.0f} lr={self.tilt['lr']:.0f} deg")
         elif name == "ps":
             self.quit = True
 
@@ -205,35 +199,45 @@ class TeleopSession:
         else:
             self._auto = (None, goal)
 
+    def _held_dpad(self, gp: GamepadState):
+        """(component, direction) of the currently held d-pad button, or None."""
+        for name in ("dpad_up", "dpad_down", "dpad_left", "dpad_right"):
+            if gp.is_held(name):
+                return self.dpad_map[name]
+        return None
+
     def _update_tilt(self, gp: GamepadState):
-        comp, sgn = self.active_tilt
+        sel = self._held_dpad(gp)
         for name in ("cross", "circle"):
             held = gp.is_held(name)
             was = self._btn_prev.get(name, False)
             if held and not was:
                 self._press_t[name] = self._t
-            cur = self.tilt[comp]
-            # step direction: Cross follows the d-pad selection, Circle goes toward 0
-            direction = sgn if name == "cross" else (-np.sign(cur) if cur else 0.0)
-            if held and (self._t - self._press_t.get(name, self._t)) >= self.hold_threshold:
-                # hold: slow continuous change from the current value
-                step = direction * self.tilt_hold_speed * self.dt
-                if name == "circle":
-                    step = -np.sign(cur) * min(abs(cur), self.tilt_hold_speed * self.dt)
-                new = float(np.clip(cur + step, -self.tilt_max, self.tilt_max))
-                if abs(new - cur) > 1e-9:
-                    self._set_tilt(comp, new, smooth=False)
-            if was and not held:
-                if (self._t - self._press_t.get(name, self._t)) < self.hold_threshold \
-                        and direction != 0.0:
-                    new = self._snap(cur, direction)
+            # Cross/Circle act only while a d-pad direction is held (chord)
+            if sel is not None:
+                comp, sgn = sel
+                cur = self.tilt[comp]
+                # Cross follows the held d-pad direction, Circle goes toward 0
+                direction = sgn if name == "cross" else (-np.sign(cur) if cur else 0.0)
+                if held and (self._t - self._press_t.get(name, self._t)) >= self.hold_threshold:
+                    # hold: slow continuous change from the current value
+                    step = direction * self.tilt_hold_speed * self.dt
                     if name == "circle":
-                        # never overshoot past 0 when cancelling
-                        new = 0.0 if new * cur < 0 else new
+                        step = -np.sign(cur) * min(abs(cur), self.tilt_hold_speed * self.dt)
+                    new = float(np.clip(cur + step, -self.tilt_max, self.tilt_max))
                     if abs(new - cur) > 1e-9:
-                        self._set_tilt(comp, new, smooth=True)
-                        print(f"[tilt] {comp} {cur:.0f} -> {new:.0f} deg "
-                              f"(ud={self.tilt['ud']:.0f} lr={self.tilt['lr']:.0f})")
+                        self._set_tilt(comp, new, smooth=False)
+                if was and not held:
+                    if (self._t - self._press_t.get(name, self._t)) < self.hold_threshold \
+                            and direction != 0.0:
+                        new = self._snap(cur, direction)
+                        if name == "circle":
+                            # never overshoot past 0 when cancelling
+                            new = 0.0 if new * cur < 0 else new
+                        if abs(new - cur) > 1e-9:
+                            self._set_tilt(comp, new, smooth=True)
+                            print(f"[tilt] {comp} {cur:.0f} -> {new:.0f} deg "
+                                  f"(ud={self.tilt['ud']:.0f} lr={self.tilt['lr']:.0f})")
             self._btn_prev[name] = held
 
     # -- continuous integration -------------------------------------------
