@@ -147,6 +147,18 @@ python scripts/teleop_real.py
 브리지는 현재 관절각과 가까운 첫 명령을 받을 때까지 대기하므로(클라이언트가 로봇
 상태로 동기화 후 전송) 급격한 초기 이동이 없다.
 
+**홈 자세 프리셋** (`configs/teleop.yaml` → `home.select`) — 홈(△ 버튼)·IK 널스페이스
+기준·초기 타겟에 쓰인다. 세 프리셋 제공:
+
+| `home.select` | 자세 | 출처 |
+|---|---|---|
+| `franka_ready` | q4=−3π/4 | Franka 내장 "ready" (실물 부팅/Desk 이동 위치) |
+| `dsfranka` (기본) | q4=−π/2 | menagerie fr3_hand 키프레임 (시뮬 모델 일치) |
+| `libero` | q2=π/16, q6=π−0.2 | robosuite/LIBERO Panda init_qpos (**본인 LIBERO 버전과 대조 검증 필요**) |
+
+실물은 텔레옵 시작 전 로봇이 선택한 홈에 물리적으로 있어야 한다(`dsfranka`는
+`02_move_to_home`, `franka_ready`는 부팅 자세라 이동 불필요).
+
 **로봇 타입 (FR3 기본)** — 두 곳이 짝을 이룬다:
 
 | 위치 | 설정 | 효과 |

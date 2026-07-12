@@ -31,6 +31,12 @@ class MujocoArm:
     def reset(self):
         key = self.m.key("home").id
         mujoco.mj_resetDataKeyframe(self.m, self.d, key)
+        # honor the configured home preset, which may differ from the model's
+        # "home" keyframe (franka_ready / libero); also point the position servo
+        # there so it holds instead of driving back to the keyframe
+        self.d.qpos[:7] = self.q_home
+        if self.m.nu >= 7:
+            self.d.ctrl[:7] = self.q_home
         # the robot-file keyframe doesn't cover scene objects: put free bodies
         # (cube etc.) back at their XML spawn pose instead of zero-padded origin
         for j in range(self.m.njnt):

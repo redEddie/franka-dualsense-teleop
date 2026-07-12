@@ -8,13 +8,13 @@ import sys
 import tempfile
 
 import numpy as np
-import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 import mujoco
 
+from dsfranka.common.config import load_config
 from dsfranka.data.recorder import EpisodeRecorder
 from dsfranka.input.gamepad import GamepadState, MockGamepad
 from dsfranka.sim.mujoco_robot import MujocoArm
@@ -57,7 +57,7 @@ def tilt_of(session, quat):
 
 
 def main():
-    cfg = yaml.safe_load(open(ROOT / "configs/teleop.yaml"))
+    cfg = load_config(ROOT / "configs/teleop.yaml")
     tmp = tempfile.mkdtemp()
     arm = MujocoArm(cfg)
     rec = EpisodeRecorder(tmp)
