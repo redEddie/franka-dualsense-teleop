@@ -24,6 +24,9 @@ target_link_libraries(01_echo_state Franka::Franka)
 add_executable(02_move_to_home examples/02_move_to_home.cpp)
 target_link_libraries(02_move_to_home Franka::Franka)
 
+add_executable(03_gripper_probe examples/03_gripper_probe.cpp)
+target_link_libraries(03_gripper_probe Franka::Franka)
+
 add_executable(franka_bridge bridge/franka_bridge.cpp)
 target_link_libraries(franka_bridge Franka::Franka Threads::Threads)
 if(DSFRANKA_ROBOT STREQUAL "panda")
