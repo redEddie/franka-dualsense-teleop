@@ -43,8 +43,10 @@ class Gamepad:
     def set_rumble(self, low: float, high: float) -> None:
         """low/high frequency motor intensity, 0..1 each."""
 
-    def set_trigger(self, side: str, force: float) -> None:
-        """Adaptive trigger resistance: side 'L2'|'R2', force 0..1 (0 = off)."""
+    def set_trigger(self, side: str, force: float, buzz_hz: float = 0.0) -> None:
+        """Adaptive trigger resistance: side 'L2'|'R2', force 0..1 (0 = off).
+        buzz_hz > 0 renders the force as a square wave at that frequency
+        (driver-side oscillator) instead of steady resistance."""
 
     def set_lightbar(self, r: int, g: int, b: int) -> None:
         """Lightbar RGB, 0..255 each."""
@@ -60,7 +62,7 @@ class MockGamepad(Gamepad):
         # script: iterable of GamepadState, replayed once then zeros
         self._script = iter(script) if script is not None else iter(())
         self.rumble = (0.0, 0.0)
-        self.trigger = {"L2": 0.0, "R2": 0.0}
+        self.trigger = {"L2": (0.0, 0.0), "R2": (0.0, 0.0)}  # (force, buzz_hz)
         self.lightbar = (0, 0, 0)
 
     def poll(self) -> GamepadState:
@@ -69,8 +71,8 @@ class MockGamepad(Gamepad):
     def set_rumble(self, low: float, high: float) -> None:
         self.rumble = (low, high)
 
-    def set_trigger(self, side: str, force: float) -> None:
-        self.trigger[side] = force
+    def set_trigger(self, side: str, force: float, buzz_hz: float = 0.0) -> None:
+        self.trigger[side] = (force, buzz_hz)
 
     def set_lightbar(self, r: int, g: int, b: int) -> None:
         self.lightbar = (r, g, b)

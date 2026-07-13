@@ -31,12 +31,16 @@ gamepad:
 
 gripper:                 # binary open/close — the Franka Hand can't be servoed to a
                          # continuous width (measured ~0.8 s/command, ~1.2 Hz max)
-  close_at: 0.85         # R2 press fraction (0..1) that switches to CLOSED (deep, deliberate)
-  open_at: 0.55          # R2 release fraction that switches back to OPEN (gap = hysteresis)
-  buzz_amp: 0.4          # 0..1 R2 trigger buzz amplitude while pressing toward the threshold
-  buzz_span: 0.35        # R2 fraction the buzz ramps over before the wall
-  detent_force: 0.9      # 0..1 R2 resistance wall in the final band -> the "click" at the toggle
-  detent_band: 0.10      # R2 fraction of that final wall zone before the threshold
+  # R2 feel: weak preload 0~60% -> solid wall 60~80% -> click (resistance vanishes) past 80%.
+  # Once closed, it stays closed anywhere above 20% — release below 20% (wall at 20~40%) to open.
+  close_at: 0.80         # R2 press fraction (0..1) that switches to CLOSED
+  open_at: 0.20          # R2 release fraction that switches back to OPEN (gap = hysteresis)
+  preload_force: 0.10    # weak steady detent over 0~60% — keeps the trigger motor engaged
+                         # (Off<->Rigid transitions make the mechanism rattle)
+  detent_force: 1.0      # 0..1 R2 resistance wall in the final band -> the "click" at the toggle
+  detent_band: 0.20      # wall zone width before the threshold (0.60..0.80 on press)
+  detent_hysteresis: 0.06 # sticky wall: once engaged, releases only this far outside the
+                          # zone — kills the flutter when a finger rests on the wall edge
 
 feedback:                # haptics (pydualsense driver only; no-op otherwise)
   enabled: true

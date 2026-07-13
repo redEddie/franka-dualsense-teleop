@@ -215,8 +215,10 @@ def main():
     assert s.gripper == 0.0, "R2 past close_at should close"
     run_ticks(s, [GamepadState(r2=0.7)])          # in hysteresis band -> stays closed
     assert s.gripper == 0.0, "hysteresis band should stay closed"
-    assert s.gamepad.trigger["R2"] > 0.0, "R2 buzz/wall should be active near the threshold"
-    run_ticks(s, [GamepadState(r2=0.4)])          # below open_at -> open
+    run_ticks(s, [GamepadState(r2=0.3)])          # release wall zone, still above open_at
+    assert s.gripper == 0.0, "still above open_at: stays closed"
+    assert s.gamepad.trigger["R2"][0] > 0.0, "release wall should be active near open_at"
+    run_ticks(s, [GamepadState(r2=0.1)])          # below open_at -> open
     assert s.gripper == 1.0, "R2 below open_at should open"
     print("[ok] gripper binary hysteresis + R2 buzz/detent")
 

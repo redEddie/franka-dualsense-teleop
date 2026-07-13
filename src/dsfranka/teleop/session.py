@@ -122,12 +122,12 @@ class TeleopSession:
         g = cfg.get("gripper", {})
         self.grip_close_at = float(g.get("close_at", 0.85))  # R2 press fraction to CLOSE (deep)
         self.grip_open_at = float(g.get("open_at", 0.55))    # R2 release fraction to OPEN
-        self.detent_force = float(g.get("detent_force", 0.9))
-        self.detent_band = float(g.get("detent_band", 0.10)) # final "wall" zone before the threshold
-        self.buzz_amp = float(g.get("buzz_amp", 0.4))        # trigger buzz amplitude while pressing in
-        self.buzz_span = float(g.get("buzz_span", 0.35))     # R2 fraction the buzz ramps over
+        self.detent_force = float(g.get("detent_force", 1.0))
+        self.detent_band = float(g.get("detent_band", 0.20)) # final "wall" zone before the threshold
+        self.detent_hyst = float(g.get("detent_hysteresis", 0.06))  # sticky wall release gap
+        self.preload_force = float(g.get("preload_force", 0.25))  # weak steady detent, 0..60%
         self._grip_closed = False   # start open
-        self._r2_phase = 0
+        self._wall_on = False
         self.gripper = 1.0
 
         # orientation bookkeeping (see module docstring)
@@ -284,22 +284,33 @@ class TeleopSession:
         elif self._grip_closed and gp.r2 < self.grip_open_at:
             self._grip_closed = False
         self.gripper = 0.0 if self._grip_closed else 1.0
-        self.gamepad.set_trigger("R2", self._r2_haptic(gp.r2))
+        self.gamepad.set_trigger("R2", *self._r2_haptic(gp.r2))
 
-    def _r2_haptic(self, r2: float) -> float:
-        """R2 trigger feel toward the gripper toggle: a buzz that ramps up as you
-        press in, then a solid resistance wall in the final `detent_band` that
-        vanishes the instant the state flips -> a click you push through. Symmetric
-        on release. Signals the deep close point and prevents accidental toggles."""
+    def _r2_haptic(self, r2: float) -> tuple[float, float]:
+        """R2 trigger feel toward the gripper toggle -> (force, buzz_hz).
+
+        Press-in (open):  weak steady preload 0..60% -> solid wall 60..80% ->
+        past 80% the state flips and resistance vanishes (the "click").
+        The preload keeps the trigger motor constantly engaged — going through
+        Off<->Rigid transitions makes the mechanism rattle (felt on hardware).
+        Release (closed): free while held deep -> wall before the open
+        threshold -> click to open. The wall is sticky (detent_hysteresis) so
+        a finger resting on its edge doesn't flutter the resistance on/off.
+        """
         # R2 fraction still to travel before the active threshold (>= 0 until it flips)
         dd = (r2 - self.grip_open_at) if self._grip_closed else (self.grip_close_at - r2)
-        if dd < 0.0 or dd > self.detent_band + self.buzz_span:
-            return 0.0
+        if dd < 0.0:
+            self._wall_on = False
+            return 0.0, 0.0                       # just toggled -> the "click" release
         if dd <= self.detent_band:
-            return self.detent_force                        # solid wall (steady) -> click
-        frac = 1.0 - (dd - self.detent_band) / self.buzz_span   # 0..1 as the wall nears
-        self._r2_phase ^= 1                                 # alternate -> the trigger buzzes
-        return self.buzz_amp * frac * (1.0 if self._r2_phase else 0.3)
+            self._wall_on = True
+            return self.detent_force, 0.0         # solid wall (steady)
+        if self._wall_on and dd <= self.detent_band + self.detent_hyst:
+            return self.detent_force, 0.0         # sticky wall edge
+        self._wall_on = False
+        if self._grip_closed:
+            return 0.0, 0.0                       # holding closed deep: free ("pressed" feel)
+        return self.preload_force, 0.0            # 0..60%: weak steady detent
 
     def _integrate_auto(self):
         goal_pos, goal_quat = self._auto
