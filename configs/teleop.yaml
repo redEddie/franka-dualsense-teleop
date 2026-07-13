@@ -68,7 +68,7 @@ home:
   # Active homing pose (Triangle button, IK null-space ref, initial teleop target).
   # On the real robot, the arm must physically be at this pose before teleop starts
   # (02_move_to_home goes to `dsfranka`; `franka_ready` is the robot's boot pose).
-  select: dsfranka       # franka_ready | dsfranka | libero | robosuite
+  select: libero       # franka_ready | dsfranka | libero | robosuite
   presets:
     # Franka built-in "ready" pose — what the real robot boots to / Desk "move to start". q4 = -3pi/4.
     franka_ready: [0.0, -0.785398, 0.0, -2.356194, 0.0, 1.570796, 0.785398]

@@ -58,6 +58,9 @@ def tilt_of(session, quat):
 
 def main():
     cfg = load_config(ROOT / "configs/teleop.yaml")
+    # pin the home pose: thresholds below assume the dsfranka home, so the
+    # test must not depend on the user's current home.select choice
+    cfg["home"]["qpos"] = cfg["home"]["presets"]["dsfranka"]
     tmp = tempfile.mkdtemp()
     arm = MujocoArm(cfg)
     rec = EpisodeRecorder(tmp)
