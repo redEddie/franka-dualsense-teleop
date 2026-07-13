@@ -1,0 +1,13 @@
+# Room 316 workspace box — kinesthetic calibration of the Franka (FR3) cell.
+# Captured with scripts/calibrate_workspace.py (margin 0.005 m); z-lower is the
+# table-contact height for this cell.
+#
+# This file is a NAMED reference and does NOT auto-load. To use it on this robot,
+# copy it to the active override the loader reads:
+#     cp configs/workspace_room316.yaml configs/workspace_calibrated.yaml
+# (configs/workspace_calibrated.yaml overrides teleop.yaml at load time; delete
+#  it to revert to the teleop.yaml box.)
+workspace:
+  x: [0.193, 0.795]
+  y: [-0.433, 0.603]
+  z: [0.011, 0.577]
