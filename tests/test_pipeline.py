@@ -140,10 +140,14 @@ def main():
     # return home before the tilt section
     st, _ = run_ticks(s, [GamepadState(pressed=["triangle"])] + idle(4 * hz))
 
-    # --- guard: Cross/Circle without a held d-pad do nothing -------------------
-    st, tg = run_ticks(s, tap("cross") + tap("circle") + idle(hz))
-    assert tilt_of(s, tg.quat) < 1, f"bare Cross/Circle must not tilt: {tilt_of(s, tg.quat):.1f}"
-    print("[ok] Cross/Circle without d-pad are ignored")
+    # --- bare Cross/Circle: gripper close/open, never tilt ---------------------
+    st, tg = run_ticks(s, tap("cross") + idle(5))
+    assert s.gripper == 0.0, "bare Cross should close the gripper"
+    assert tilt_of(s, tg.quat) < 1, f"bare Cross must not tilt: {tilt_of(s, tg.quat):.1f}"
+    st, tg = run_ticks(s, tap("circle") + idle(hz))
+    assert s.gripper == 1.0, "bare Circle should open the gripper"
+    assert tilt_of(s, tg.quat) < 1, f"bare Circle must not tilt: {tilt_of(s, tg.quat):.1f}"
+    print("[ok] bare Cross closes / Circle opens gripper, no tilt")
 
     # --- tilt: d-pad + Cross chord -> 30, again -> 60 (ud component) ----------
     st, tg = run_ticks(s, chord_tap("dpad_up", "cross") + idle(2 * hz))

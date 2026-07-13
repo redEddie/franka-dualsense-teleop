@@ -12,15 +12,15 @@ d-pad (hold)    selects which tilt component/direction Cross edits
                 (up/down -> ud component, left/right -> lr component).
                 Cross/Circle only act WHILE a d-pad direction is held —
                 without it they are ignored (guards accidental presses)
-Cross           tap (with d-pad held): step that component 30 deg in the
-                held direction FROM ITS CURRENT VALUE (snaps onto the grid);
-                hold: slow continuous change in that direction
-Circle          tap (with d-pad held): step that component 30 deg toward 0;
-                hold: slow continuous return to 0
+Cross           BARE press (no d-pad): gripper CLOSE — primary gripper control.
+                with d-pad held: tilt step/creep (see d-pad above)
+Circle          BARE press (no d-pad): gripper OPEN.
+                with d-pad held: step that component toward 0 / creep back
 Square          orientation reset (yaw & both tilt components -> 0)
 Triangle        home (EE pose of the home configuration)
 R3              auto-descend to configured height
-L2 / R2         gripper open / close (analog rate)
+R2              gripper toggle, crossing-based (alternate control with a
+                haptic detent; coexists with the Cross/Circle buttons)
 Create          episode recording start / stop+save   (capture key)
 Options         discard current recording             (menu key)
 PS              quit session
@@ -128,6 +128,8 @@ class TeleopSession:
         self.preload_force = float(g.get("preload_force", 0.25))  # weak steady detent, 0..60%
         self._grip_closed = False   # start open
         self._wall_on = False
+        self._r2_prev = 0.0
+        self._chord_consumed: set[str] = set()  # bare-press gripper actions eat the tilt tap
         self.gripper = 1.0
 
         # orientation bookkeeping (see module docstring)
@@ -222,8 +224,16 @@ class TeleopSession:
             was = self._btn_prev.get(name, False)
             if held and not was:
                 self._press_t[name] = self._t
-            # Cross/Circle act only while a d-pad direction is held (chord)
-            if sel is not None:
+                if sel is None:
+                    # bare Cross/Circle (no d-pad chord) = gripper close/open
+                    closed = name == "cross"
+                    if closed != self._grip_closed:
+                        self._grip_closed = closed
+                        print(f"[grip] {'CLOSE' if closed else 'OPEN'} (button)")
+                    self._chord_consumed.add(name)
+            # Cross/Circle act as tilt only while a d-pad is held (chord) and
+            # only if this press wasn't already consumed as a gripper button
+            if sel is not None and name not in self._chord_consumed:
                 comp, sgn = sel
                 cur = self.tilt[comp]
                 # Cross follows the held d-pad direction, Circle goes toward 0
@@ -247,6 +257,8 @@ class TeleopSession:
                             self._set_tilt(comp, new, smooth=True)
                             print(f"[tilt] {comp} {cur:.0f} -> {new:.0f} deg "
                                   f"(ud={self.tilt['ud']:.0f} lr={self.tilt['lr']:.0f})")
+            if was and not held:
+                self._chord_consumed.discard(name)
             self._btn_prev[name] = held
 
     # -- continuous integration -------------------------------------------
@@ -276,13 +288,15 @@ class TeleopSession:
             self.quat = _rotate_quat_world(
                 self.quat, np.array([0.0, 0.0, 1.0]) * self._yaw_v * self.dt)
 
-        # R2 -> binary open/close with hysteresis (deep close point; the Franka Hand
-        # can't be servoed to a continuous width, ~0.8 s per command). Press past
-        # close_at to close, release below open_at to reopen.
-        if not self._grip_closed and gp.r2 > self.grip_close_at:
+        # R2 -> binary open/close on threshold CROSSINGS (deep close point; the
+        # Franka Hand can't be servoed to a continuous width, ~0.8 s per command).
+        # Crossing-based so it coexists with the Cross/Circle button mapping:
+        # a button-set state isn't overridden by a resting trigger level.
+        if not self._grip_closed and self._r2_prev <= self.grip_close_at < gp.r2:
             self._grip_closed = True
-        elif self._grip_closed and gp.r2 < self.grip_open_at:
+        elif self._grip_closed and self._r2_prev >= self.grip_open_at > gp.r2:
             self._grip_closed = False
+        self._r2_prev = gp.r2
         self.gripper = 0.0 if self._grip_closed else 1.0
         self.gamepad.set_trigger("R2", *self._r2_haptic(gp.r2))
 
@@ -347,6 +361,8 @@ class TeleopSession:
         gp = gp if gp is not None else self.gamepad.poll()
         self._t += self.dt
         for name in gp.pressed:
+            if name in ("cross", "circle"):
+                continue  # handled edge-based in _update_tilt (tilt chord / gripper)
             self._on_button(name)
         self._update_tilt(gp)
 
