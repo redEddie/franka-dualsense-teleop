@@ -68,14 +68,18 @@ home:
   # Active homing pose (Triangle button, IK null-space ref, initial teleop target).
   # On the real robot, the arm must physically be at this pose before teleop starts
   # (02_move_to_home goes to `dsfranka`; `franka_ready` is the robot's boot pose).
-  select: dsfranka       # franka_ready | dsfranka | libero
+  select: dsfranka       # franka_ready | dsfranka | libero | robosuite
   presets:
     # Franka built-in "ready" pose — what the real robot boots to / Desk "move to start". q4 = -3pi/4.
     franka_ready: [0.0, -0.785398, 0.0, -2.356194, 0.0, 1.570796, 0.785398]
     # menagerie fr3_hand / panda "home" keyframe — matches the sim model. q4 = -pi/2.
     dsfranka:     [0.0,  0.0,      0.0, -1.570796, 0.0, 1.570796, 0.785398]
-    # robosuite / LIBERO Panda init_qpos (benchmark reset). VERIFY against your LIBERO version.
-    libero:       [0.0,  0.196350, 0.0, -2.617994, 0.0, 2.941593, 0.785398]
+    # LIBERO benchmark init_qpos — the benchmark OVERRIDES the robosuite default
+    # (source: libero/envs/robots/mounted_panda.py, verified 2026-07-13).
+    # FK on our FR3: TCP (0.451, 0, 0.254), 3.3 deg from vertical.
+    libero:       [0.0, -0.161037389, 0.0, -2.44459747, 0.0, 2.2267522, 0.785398]
+    # robosuite default Panda init_qpos — NOT what LIBERO uses; kept for reference.
+    robosuite:    [0.0,  0.196350, 0.0, -2.617994, 0.0, 2.941593, 0.785398]
 
 ik:
   pos_gain: 5.0          # target-error -> velocity gain
