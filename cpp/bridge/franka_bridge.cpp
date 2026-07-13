@@ -202,11 +202,17 @@ int main(int argc, char** argv) {
     // joints accelerate — keeping them equal (and low) made fast teleop moves trip
     // a spurious cartesian_reflex right at start. Raise these further for hard
     // contact tasks, lower them for tighter safety. [torque Nm, force N/Nm]
+    // Relaxed ~1.5-1.7x from the original set so that carrying an object and
+    // lightly bumping the environment no longer trips a reflex (which would kill
+    // the control loop and end teleop). A hard collision still stops the robot.
     robot.setCollisionBehavior(
-        {{40, 40, 38, 38, 34, 32, 28}}, {{40, 40, 38, 38, 34, 32, 28}},  // torque, acceleration
-        {{30, 30, 28, 28, 26, 24, 22}}, {{30, 30, 28, 28, 26, 24, 22}},  // torque, nominal
-        {{50, 50, 50, 50, 50, 50}}, {{50, 50, 50, 50, 50, 50}},          // force, acceleration
-        {{35, 35, 35, 40, 40, 40}}, {{35, 35, 35, 40, 40, 40}});         // force, nominal
+        {{60, 60, 55, 55, 48, 44, 40}}, {{60, 60, 55, 55, 48, 44, 40}},  // torque, acceleration
+        {{50, 50, 45, 45, 40, 36, 32}}, {{50, 50, 45, 45, 40, 36, 32}},  // torque, nominal
+        // Cartesian [Fx,Fy,Fz (N), Mx,My,Mz (Nm)] — the EE torque (moment) terms
+        // are given extra slack so twisting/rotating a grasped object into contact
+        // doesn't trip a reflex.
+        {{75, 75, 75, 95, 95, 95}}, {{75, 75, 75, 95, 95, 95}},          // force, acceleration
+        {{60, 60, 60, 82, 82, 82}}, {{60, 60, 60, 82, 82, 82}});         // force, nominal
 
     franka::Gripper gripper(argv[1]);
     double gripper_width = 0.08;
