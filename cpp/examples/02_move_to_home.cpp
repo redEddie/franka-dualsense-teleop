@@ -1,22 +1,36 @@
 // libfranka practice 2: smooth joint point-to-point motion to the home pose.
 // Cosine-interpolated JointPositions callback — the minimal "make it move" example.
-// Usage: ./02_move_to_home <robot-ip>
+// Usage: ./02_move_to_home <robot-ip> [preset]   preset = libero (default) | dsfranka
 // SAFETY: robot moves! Clear the workspace, keep the user stop in hand.
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 
 #include <franka/exception.h>
 #include <franka/robot.h>
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "usage: " << argv[0] << " <robot-ip>" << std::endl;
+  if (argc < 2 || argc > 3) {
+    std::cerr << "usage: " << argv[0] << " <robot-ip> [libero|dsfranka]" << std::endl;
     return 1;
   }
-  // matches the teleop home (fr3_hand.xml keyframe / configs/teleop.yaml home.qpos):
-  // q7 = +M_PI_4, so the arm lands exactly where teleop_real seeds its target.
-  const std::array<double, 7> q_goal = {{0, 0, 0, -M_PI_2, 0, M_PI_2, M_PI_4}};
+  // Home presets must match configs/teleop.yaml home.presets so the arm lands
+  // exactly where teleop_real seeds its target (q7 = +M_PI_4 in both).
+  const std::array<double, 7> q_dsfranka = {{0, 0, 0, -M_PI_2, 0, M_PI_2, M_PI_4}};
+  const std::array<double, 7> q_libero =
+      {{0.0, -0.161037389, 0.0, -2.44459747, 0.0, 2.2267522, M_PI_4}};
+  const char* preset = (argc == 3) ? argv[2] : "libero";  // default matches config
+  std::array<double, 7> q_goal;
+  if (std::strcmp(preset, "dsfranka") == 0) {
+    q_goal = q_dsfranka;
+  } else if (std::strcmp(preset, "libero") == 0) {
+    q_goal = q_libero;
+  } else {
+    std::cerr << "unknown preset '" << preset << "' (use libero|dsfranka)" << std::endl;
+    return 1;
+  }
+  std::cout << "moving to '" << preset << "' home..." << std::endl;
   const double duration = 5.0;  // seconds
 
   try {
