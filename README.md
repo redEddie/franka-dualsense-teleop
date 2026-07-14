@@ -1,7 +1,5 @@
 # dsfranka
 
-**DualSense teleoperation & demonstration data collection for Franka (FR3) — MuJoCo sim + libfranka**
-
 DualSense 게임패드로 Franka 로봇팔을 텔레오퍼레이션하고 시연 데이터를 수집하는 프로젝트.
 MuJoCo 시뮬레이션에서 조작감을 개발/검증한 뒤, 같은 코드 경로로 실제 Franka(libfranka)를 구동한다.
 
@@ -16,6 +14,11 @@ DualSense ──▶ TeleopSession (Python, 50 Hz)          ┌─ sim ──▶ 
 핵심 설계: **차분 IK와 텔레옵 로직이 시뮬/실물에서 완전히 동일**하다.
 시뮬은 MuJoCo 물리로 실행되고, 실물은 같은 MuJoCo 모델을 기구학 전용으로 사용해
 IK를 풀고 관절 타겟을 C++ 브리지로 스트리밍한다(브리지가 1 kHz 스무딩/추종).
+
+## 🎥 Demo
+
+[![Watch the demo](https://img.youtube.com/vi/eDtdNF7Izfw/maxresdefault.jpg)](https://youtu.be/eDtdNF7Izfw)
+**DualSense teleoperation & demonstration data collection for Franka (FR3) — MuJoCo sim + libfranka**
 
 ## 시작하기
 
